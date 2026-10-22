@@ -9,8 +9,10 @@ inside the extent on a MapLibre map. The map is ported from
 (`app/components/map/`): same basemaps, BRO locations PMTiles, layers panel and
 CPT triangles, without the address search and file loading.
 
-- Geometry: `src/project-geometry.ts` (RD New coordinates, converted with proj4)
-- CPTs: `src/data/cpts.json`, from `research/bro-cpt-coverage_cpts.csv`
+- Geometry: `../data/model_extent.geojson` and `../data/site_plot.geojson`
+  (WGS 84, written by `../data/make_project_geometry.py`), read by
+  `src/project-geometry.ts`
+- CPTs in the model extent: the PMTiles CPTs, picked with a `within` filter
 
 ```sh
 npm install

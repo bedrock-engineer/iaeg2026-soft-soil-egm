@@ -6,12 +6,7 @@ import {
   type StyleSpecification,
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
-import {
-  cptGeoJSON,
-  cptRecords,
-  modelExtentGeoJSON,
-  sitePlotGeoJSON,
-} from "../project-geometry";
+import { modelExtentFeature, sitePlotFeature } from "../project-geometry";
 
 // Register the PMTiles protocol once per app load
 const protocol = new Protocol();
@@ -110,19 +105,21 @@ export const interactiveLayers = [
   "extent-fill",
 ];
 
+const insideModelExtent: FilterSpecification = [
+  "within",
+  modelExtentFeature.geometry,
+];
+
 /**
- * Filter for the unclustered tile point layers. The model CPTs are
- * excluded so each of them renders exactly once, as its highlighted
- * marker. Clusters are baked into the tiles by tippecanoe, so their
- * counts still include them.
+ * Filter for the unclustered tile point layers. CPTs inside the model
+ * extent are excluded so each of them renders exactly once, as its
+ * highlighted marker. Clusters are baked into the tiles by tippecanoe,
+ * so their counts still include them.
  */
 const broPointFilter: FilterSpecification = [
   "all",
   ["!", ["has", "point_count"]],
-  [
-    "!",
-    ["in", ["get", "bro_id"], ["literal", cptRecords.map((cpt) => cpt.bro_id)]],
-  ],
+  ["!", insideModelExtent],
 ];
 
 interface MapIcon {
@@ -301,7 +298,9 @@ const overlayLayers: Array<LayerSpecification> = [
   {
     id: "model-cpt-points",
     type: "symbol",
-    source: "cpts",
+    source: "bro",
+    "source-layer": "cpt",
+    filter: ["all", ["!", ["has", "point_count"]], insideModelExtent],
     layout: {
       "icon-image": "cpt-triangle-model",
       "icon-allow-overlap": true,
@@ -341,14 +340,13 @@ export function createMapStyle(): StyleSpecification {
     version: 8,
     sources: {
       ...basemapSources,
-      extent: { type: "geojson", data: modelExtentGeoJSON() },
-      site: { type: "geojson", data: sitePlotGeoJSON() },
+      extent: { type: "geojson", data: modelExtentFeature },
+      site: { type: "geojson", data: sitePlotFeature },
       bro: {
         type: "vector",
         url: `pmtiles://${broPmtilesUrl}`,
         attribution: "BRO",
       },
-      cpts: { type: "geojson", data: cptGeoJSON() },
     },
     layers: [...basemapLayers, ...overlayLayers],
   };

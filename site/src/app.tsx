@@ -1,5 +1,5 @@
 import { ProjectMap } from "./map/map";
-import { modelCentre, modelExtent } from "./project-geometry";
+import { modelExtent } from "./project-geometry";
 
 const repoUrl = "https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm";
 
@@ -9,7 +9,7 @@ const extentFacts: Array<[label: string, value: string]> = [
   ["Location", "Overhoeks, Amsterdam Noord"],
   [
     "Centre (RD New)",
-    `${nf.format(modelCentre[0])}, ${nf.format(modelCentre[1])}`,
+    `${nf.format(modelExtent.centre_x)}, ${nf.format(modelExtent.centre_y)}`,
   ],
   [
     "x (RD New)",
@@ -21,7 +21,7 @@ const extentFacts: Array<[label: string, value: string]> = [
   ],
   [
     "Size",
-    `${modelExtent.xmax - modelExtent.xmin} × ${modelExtent.ymax - modelExtent.ymin} m, ground level to ${modelExtent.zmin} m NAP`,
+    `${modelExtent.xmax - modelExtent.xmin} × ${modelExtent.ymax - modelExtent.ymin} m, ground level to ${modelExtent.zmin_nap} m NAP`,
   ],
   ["BRO CPTs inside", "66"],
 ];

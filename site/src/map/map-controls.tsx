@@ -45,7 +45,7 @@ export function MapLayersPanel({
       />
       <LayerToggle
         swatch={<TriangleSwatch color={overlayColors.modelCpt} highlighted />}
-        label="CPTs in model extent (66)"
+        label="CPTs in model extent"
         checked={visibility.modelCpt}
         onChange={(checked) => {
           onVisibilityChange("modelCpt", checked);

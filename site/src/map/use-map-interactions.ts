@@ -23,35 +23,20 @@ function popupHtml(feature: MapGeoJSONFeature): string {
     return `<div class="text-xs">${nf.format(count)} location${count === 1 ? "" : "s"} — zoom in</div>`;
   }
 
-  if (layerId.endsWith("-points") && layerId !== "model-cpt-points") {
+  if (layerId.endsWith("-points")) {
     return tilePointHtml(feature);
-  }
-
-  if (layerId === "model-cpt-points") {
-    const properties = feature.properties;
-    const base = Number(properties.z_base_nap);
-    const lines = [
-      `<strong>${asText(properties.bro_id)}</strong>`,
-      `RD ${nf.format(Number(properties.x))}, ${nf.format(Number(properties.y))}`,
-      Number.isFinite(base) ? `Base: ${base.toFixed(1)} m NAP` : "",
-      properties.deepest_unit
-        ? `Deepest GeoTOP unit: ${asText(properties.deepest_unit)}`
-        : "",
-      asText(properties.date),
-    ].filter(Boolean);
-    return `<div class="text-xs">${lines.join("<br/>")}</div>`;
   }
 
   if (layerId === "site-fill") {
     return `<div class="text-xs"><strong>Site plot</strong><br/>Fictitious building plot</div>`;
   }
 
-  const { xmin, xmax, ymin, ymax, zmin } = modelExtent;
+  const { xmin, xmax, ymin, ymax, zmin_nap } = modelExtent;
   return `<div class="text-xs">
     <strong>GeoTOP model extent</strong><br/>
     x ${nf.format(xmin)} – ${nf.format(xmax)}<br/>
     y ${nf.format(ymin)} – ${nf.format(ymax)}<br/>
-    ${xmax - xmin} × ${ymax - ymin} m, down to ${zmin} m NAP
+    ${xmax - xmin} × ${ymax - ymin} m, down to ${zmin_nap} m NAP
   </div>`;
 }
 

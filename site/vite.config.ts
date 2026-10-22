@@ -6,4 +6,6 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "/iaeg2026-soft-soil-egm/",
   plugins: [react(), tailwindcss()],
+  // The project geometry is read from the repo's data/ folder
+  server: { fs: { allow: [".."] } },
 });
