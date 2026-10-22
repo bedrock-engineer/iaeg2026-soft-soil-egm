@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "GeoTOP model extent",
+        "description": "Plot centre ±200 m, plus one extra 100 m GeoTOP row to the north",
+        "crs_rd": "EPSG:28992",
+        "centre_x": 122091,
+        "centre_y": 488736,
+        "xmin": 121891,
+        "xmax": 122291,
+        "ymin": 488536,
+        "ymax": 489036,
+        "zmin_nap": -50
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              4.9009018,
+              52.3836851
+            ],
+            [
+              4.9067768,
+              52.3837091
+            ],
+            [
+              4.9067281,
+              52.3882027
+            ],
+            [
+              4.9008525,
+              52.3881788
+            ],
+            [
+              4.9009018,
+              52.3836851
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
