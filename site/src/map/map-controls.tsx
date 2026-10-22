@@ -44,13 +44,40 @@ export function MapLayersPanel({
         }}
       />
       <LayerToggle
-        swatch={<TriangleSwatch color={overlayColors.cpt} />}
-        label="BRO CPTs (66)"
-        checked={visibility.cpt}
+        swatch={<TriangleSwatch color={overlayColors.modelCpt} highlighted />}
+        label="CPTs in model extent (66)"
+        checked={visibility.modelCpt}
         onChange={(checked) => {
-          onVisibilityChange("cpt", checked);
+          onVisibilityChange("modelCpt", checked);
         }}
       />
+
+      <div className="space-y-1 border-t border-gray-200 pt-1">
+        <LayerToggle
+          swatch={<TriangleSwatch color={overlayColors.cpt} />}
+          label="CPT"
+          checked={visibility.cpt}
+          onChange={(checked) => {
+            onVisibilityChange("cpt", checked);
+          }}
+        />
+        <LayerToggle
+          swatch={<CircleSwatch color={overlayColors.bhrgt} />}
+          label="Borehole (BHR-GT)"
+          checked={visibility.bhrgt}
+          onChange={(checked) => {
+            onVisibilityChange("bhrgt", checked);
+          }}
+        />
+        <LayerToggle
+          swatch={<CircleSwatch color={overlayColors.bhrg} />}
+          label="Borehole (BHR-G)"
+          checked={visibility.bhrg}
+          onChange={(checked) => {
+            onVisibilityChange("bhrg", checked);
+          }}
+        />
+      </div>
 
       <RadioButtonGroup
         value={basemap}
@@ -120,16 +147,37 @@ function AreaSwatch({
   );
 }
 
-function TriangleSwatch({ color }: { color: string }) {
+function TriangleSwatch({
+  color,
+  highlighted = false,
+}: {
+  color: string;
+  highlighted?: boolean;
+}) {
   return (
     <svg viewBox="0 0 12 12" className="h-3 w-3 shrink-0" aria-hidden>
       <polygon
         points="1,2 11,2 6,10.5"
         fill={color}
-        stroke="rgba(0,0,0,0.25)"
-        strokeWidth={1}
+        stroke={highlighted ? "#1f2937" : "rgba(0,0,0,0.25)"}
+        strokeWidth={highlighted ? 1.5 : 1}
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+function CircleSwatch({ color }: { color: string }) {
+  return (
+    <span
+      className="inline-block rounded-full shrink-0"
+      style={{
+        width: 10,
+        height: 10,
+        backgroundColor: color,
+        border: "1px solid #ffffff",
+        boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
+      }}
+    />
   );
 }

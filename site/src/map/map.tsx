@@ -10,7 +10,7 @@ import { useMapInteractions } from "./use-map-interactions";
 /**
  * The bro-xml-app map, reduced to its basemaps and layers panel, with
  * the project overlays: the GeoTOP model extent, the site plot and the
- * BRO CPTs inside the extent.
+ * BRO CPTs inside the extent, on top of the BRO locations PMTiles.
  */
 export function ProjectMap() {
   const containerRef = useRef<HTMLDivElement>(null);

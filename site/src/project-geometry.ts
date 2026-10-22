@@ -1,5 +1,5 @@
 import proj4 from "proj4";
-import cptRecords from "./data/cpts.json";
+import cptData from "./data/cpts.json";
 
 // RD New with the 7-parameter +towgs84 shift (~0.5 m accuracy), the
 // same definition bro-xml-app registers before its datum grid loads.
@@ -91,6 +91,12 @@ export function sitePlotGeoJSON(): GeoJSON.Feature<GeoJSON.Polygon> {
     properties: { name: "Site plot" },
   };
 }
+
+/**
+ * The 66 BRO CPTs inside the model extent, from
+ * research/bro-cpt-coverage_cpts.csv (ticket #2).
+ */
+export const cptRecords = cptData;
 
 /**
  * The 66 BRO CPTs inside the model extent, from

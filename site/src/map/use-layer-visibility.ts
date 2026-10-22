@@ -18,7 +18,10 @@ export function useLayerVisibility(
   const [visibility, setVisibility] = useState<Record<Overlay, boolean>>({
     extent: true,
     site: true,
+    modelCpt: true,
     cpt: true,
+    bhrgt: true,
+    bhrg: true,
   });
 
   useEffect(() => {
