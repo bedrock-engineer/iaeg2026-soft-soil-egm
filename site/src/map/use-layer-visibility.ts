@@ -17,6 +17,7 @@ export function useLayerVisibility(
 ): LayerVisibilityResult {
   const [visibility, setVisibility] = useState<Record<Overlay, boolean>>({
     extent: true,
+    geotop: true,
     site: true,
     modelCpt: true,
     cpt: true,

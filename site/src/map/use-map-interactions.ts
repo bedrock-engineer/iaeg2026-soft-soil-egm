@@ -27,6 +27,12 @@ function popupHtml(feature: MapGeoJSONFeature): string {
     return tilePointHtml(feature);
   }
 
+  if (layerId === "geotop-fill") {
+    const x = Number(feature.properties.geotop_x);
+    const y = Number(feature.properties.geotop_y);
+    return `<div class="text-xs"><strong>GeoTOP cell</strong><br/>x ${nf.format(x)}, y ${nf.format(y)}<br/>100 × 100 m</div>`;
+  }
+
   if (layerId === "site-fill") {
     return `<div class="text-xs"><strong>Site plot</strong><br/>Fictitious building plot</div>`;
   }
