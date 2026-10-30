@@ -1,6 +1,7 @@
 // The project geometry lives in the repo's data/ folder, so the
 // notebooks and this site read the same files. See
 // data/make_project_geometry.py.
+import geotopCellsText from "../../data/geotop_cells.geojson?raw";
 import modelExtentText from "../../data/model_extent.geojson?raw";
 import sitePlotText from "../../data/site_plot.geojson?raw";
 
@@ -26,8 +27,8 @@ interface ModelExtent {
 }
 
 /**
- * Model extent the GeoTOP voxels are taken from: the plot centre
- * ±200 m, plus one extra 100 m GeoTOP row to the north.
+ * Model extent the GeoTOP voxels are taken from: 4 × 5 whole GeoTOP
+ * cells centred on the plot.
  */
 export const modelExtentFeature = firstFeature<ModelExtent>(modelExtentText);
 
@@ -47,3 +48,9 @@ export function modelExtentBounds(): [[number, number], [number, number]] {
     [Math.max(...lngs), Math.max(...lats)],
   ];
 }
+
+/** The GeoTOP 100 × 100 m cells the model takes its voxel columns from. */
+export const geotopCells = JSON.parse(geotopCellsText) as PolygonCollection<{
+  geotop_x: number;
+  geotop_y: number;
+}>;

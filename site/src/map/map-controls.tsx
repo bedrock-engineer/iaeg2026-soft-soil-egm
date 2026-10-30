@@ -36,6 +36,14 @@ export function MapLayersPanel({
         }}
       />
       <LayerToggle
+        swatch={<GridSwatch />}
+        label="GeoTOP 100 × 100 m cells"
+        checked={visibility.geotop}
+        onChange={(checked) => {
+          onVisibilityChange("geotop", checked);
+        }}
+      />
+      <LayerToggle
         swatch={<AreaSwatch color={overlayColors.site} />}
         label="Site plot"
         checked={visibility.site}
@@ -179,5 +187,19 @@ function CircleSwatch({ color }: { color: string }) {
         boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
       }}
     />
+  );
+}
+
+function GridSwatch() {
+  return (
+    <svg viewBox="0 0 12 12" className="h-3 w-3 shrink-0" aria-hidden>
+      <path
+        d="M1 1h10v10H1zM6 1v10M1 6h10"
+        fill="#9ca3af"
+        fillOpacity={0.3}
+        stroke="#6b7280"
+        strokeWidth={1}
+      />
+    </svg>
   );
 }
