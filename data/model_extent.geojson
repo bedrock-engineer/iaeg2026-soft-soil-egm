@@ -5,14 +5,14 @@
       "type": "Feature",
       "properties": {
         "name": "GeoTOP model extent",
-        "description": "Plot centre ±200 m, plus one extra 100 m GeoTOP row to the north",
+        "description": "4 × 5 whole GeoTOP cells centred on the plot",
         "crs_rd": "EPSG:28992",
         "centre_x": 122091,
         "centre_y": 488736,
-        "xmin": 121891,
-        "xmax": 122291,
-        "ymin": 488536,
-        "ymax": 489036,
+        "xmin": 121900,
+        "xmax": 122300,
+        "ymin": 488500,
+        "ymax": 489000,
         "zmin_nap": -50
       },
       "geometry": {
@@ -20,24 +20,24 @@
         "coordinates": [
           [
             [
-              4.9009018,
-              52.3836851
+              4.9010376,
+              52.3833621
             ],
             [
-              4.9067768,
-              52.3837091
+              4.9069125,
+              52.3833861
             ],
             [
-              4.9067281,
-              52.3882027
+              4.9068638,
+              52.3878797
             ],
             [
-              4.9008525,
-              52.3881788
+              4.9009883,
+              52.3878558
             ],
             [
-              4.9009018,
-              52.3836851
+              4.9010376,
+              52.3833621
             ]
           ]
         ]

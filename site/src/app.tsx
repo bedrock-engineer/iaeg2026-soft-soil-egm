@@ -23,7 +23,6 @@ const extentFacts: Array<[label: string, value: string]> = [
     "Size",
     `${modelExtent.xmax - modelExtent.xmin} × ${modelExtent.ymax - modelExtent.ymin} m, ground level to ${modelExtent.zmin_nap} m NAP`,
   ],
-  ["BRO CPTs inside", "66"],
 ];
 
 export function App() {
@@ -69,8 +68,8 @@ export function App() {
       </section>
 
       <footer className="border-t border-gray-200 pt-3 text-xs text-gray-500">
-        The GeoTOP extent is the plot centre ±200 m plus one extra 100 m GeoTOP
-        row to the north. The site plot is fictitious. CPT locations from the{" "}
+        The model extent is 4 × 5 whole GeoTOP cells centred on the plot. The
+        site plot is fictitious. CPT locations from the{" "}
         <a className="hover:underline" href="https://www.broloket.nl/">
           BRO
         </a>

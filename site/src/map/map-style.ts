@@ -6,7 +6,11 @@ import {
   type StyleSpecification,
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
-import { modelExtentFeature, sitePlotFeature } from "../project-geometry";
+import {
+  geotopCells,
+  modelExtentFeature,
+  sitePlotFeature,
+} from "../project-geometry";
 
 // Register the PMTiles protocol once per app load
 const protocol = new Protocol();
@@ -59,6 +63,7 @@ export const defaultBasemapId: BasemapId = "luchtfoto";
 // the CPTs inside the model extent).
 export const overlayColors = {
   extent: "#f59e0b", // amber
+  geotop: "#ffffff",
   site: "#dc2626", // red
   modelCpt: "#7c3aed", // violet
   cpt: "#2563eb", // blue
@@ -86,6 +91,7 @@ export type Overlay = keyof typeof overlayColors;
 
 export const overlayLayerIds: Record<Overlay, Array<string>> = {
   extent: ["extent-fill", "extent-line"],
+  geotop: ["geotop-fill", "geotop-casing", "geotop-line"],
   site: ["site-fill", "site-line"],
   modelCpt: ["model-cpt-points"],
   cpt: [pointLayerId("cpt"), clusterLayerId("cpt")],
@@ -102,6 +108,7 @@ export const interactiveLayers = [
   ...broTileLayers.map((layer) => pointLayerId(layer)),
   ...broTileLayers.map((layer) => clusterLayerId(layer)),
   "site-fill",
+  "geotop-fill",
   "extent-fill",
 ];
 
@@ -267,6 +274,31 @@ function broLocationLayers(layer: BROLocationLayer): Array<LayerSpecification> {
 
 const overlayLayers: Array<LayerSpecification> = [
   {
+    // Transparent, so hovering a cell finds it
+    id: "geotop-fill",
+    type: "fill",
+    source: "geotop",
+    paint: { "fill-color": overlayColors.geotop, "fill-opacity": 0 },
+  },
+  {
+    // Dark casing under the white grid lines, so they read on both the
+    // topographic map and the aerial photo
+    id: "geotop-casing",
+    type: "line",
+    source: "geotop",
+    paint: { "line-color": "#111827", "line-width": 3, "line-opacity": 0.35 },
+  },
+  {
+    id: "geotop-line",
+    type: "line",
+    source: "geotop",
+    paint: {
+      "line-color": overlayColors.geotop,
+      "line-width": 1,
+      "line-opacity": 0.8,
+    },
+  },
+  {
     id: "extent-fill",
     type: "fill",
     source: "extent",
@@ -341,6 +373,7 @@ export function createMapStyle(): StyleSpecification {
     sources: {
       ...basemapSources,
       extent: { type: "geojson", data: modelExtentFeature },
+      geotop: { type: "geojson", data: geotopCells },
       site: { type: "geojson", data: sitePlotFeature },
       bro: {
         type: "vector",
