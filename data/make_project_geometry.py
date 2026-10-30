@@ -11,15 +11,17 @@ from pathlib import Path
 
 from pyproj import Transformer
 
-# Plot centre from the bedrock-experiments nl_amsterdam demo. The GeoTOP
-# model extent is the centre ±200 m, plus one extra 100 m GeoTOP row to
-# the north, down to -50 m NAP.
+# The model extent is 4 × 5 whole GeoTOP cells (400 × 500 m) centred
+# on the plot (centre 122 091 / 488 736, from the bedrock-experiments
+# nl_amsterdam demo), down to -50 m NAP. Decided 2026-10-30: it used to
+# be the centre ±200 m plus one row north, which sat between GeoTOP
+# cells.
 CENTRE_X, CENTRE_Y = 122_091, 488_736
 EXTENT = dict(
-    xmin=CENTRE_X - 200,
-    xmax=CENTRE_X + 200,
-    ymin=CENTRE_Y - 200,
-    ymax=CENTRE_Y + 300,
+    xmin=121_900,
+    xmax=122_300,
+    ymin=488_500,
+    ymax=489_000,
     zmin_nap=-50,
 )
 
@@ -31,7 +33,7 @@ SITE_PLOT = [[122027.64070962073, 488729.8189280145], [122030.00644952901, 48873
 # GeoTOP stores x/y on a 100 m grid. Per nlmod these are the cells'
 # south-west corners (see research/voxel-export.md), so a cell spans
 # [x, x + 100] × [y, y + 100]. The model takes the cells whose x/y fall
-# inside the extent, which is what bromodels returns for that bbox.
+# inside the extent (the north and east edges excluded).
 GEOTOP_CELL = 100
 GEOTOP_XY_OFFSET = 0  # set to -50 if x/y turn out to be cell centres
 
@@ -62,8 +64,8 @@ def geotop_cells():
     first_x = -(-EXTENT["xmin"] // GEOTOP_CELL) * GEOTOP_CELL
     first_y = -(-EXTENT["ymin"] // GEOTOP_CELL) * GEOTOP_CELL
     features = []
-    for y in range(first_y, EXTENT["ymax"] + 1, GEOTOP_CELL):
-        for x in range(first_x, EXTENT["xmax"] + 1, GEOTOP_CELL):
+    for y in range(first_y, EXTENT["ymax"], GEOTOP_CELL):
+        for x in range(first_x, EXTENT["xmax"], GEOTOP_CELL):
             x0, y0 = x + GEOTOP_XY_OFFSET, y + GEOTOP_XY_OFFSET
             x1, y1 = x0 + GEOTOP_CELL, y0 + GEOTOP_CELL
             features.append(
@@ -84,7 +86,7 @@ write(
     data / "model_extent.geojson",
     "GeoTOP model extent",
     {
-        "description": "Plot centre ±200 m, plus one extra 100 m GeoTOP row to the north",
+        "description": "4 × 5 whole GeoTOP cells centred on the plot",
         "crs_rd": "EPSG:28992",
         "centre_x": CENTRE_X,
         "centre_y": CENTRE_Y,

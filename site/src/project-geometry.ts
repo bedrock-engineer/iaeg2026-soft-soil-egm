@@ -27,8 +27,8 @@ interface ModelExtent {
 }
 
 /**
- * Model extent the GeoTOP voxels are taken from: the plot centre
- * ±200 m, plus one extra 100 m GeoTOP row to the north.
+ * Model extent the GeoTOP voxels are taken from: 4 × 5 whole GeoTOP
+ * cells centred on the plot.
  */
 export const modelExtentFeature = firstFeature<ModelExtent>(modelExtentText);
 
