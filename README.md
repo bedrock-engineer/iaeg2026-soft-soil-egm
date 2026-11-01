@@ -5,6 +5,8 @@ Project home page with the model extent on a map: <https://bedrock-engineer.gith
 
 ## Local notebooks
 
-Run `uvx marimo edit --sandbox --watch notebooks/01_get_data.py` to select data around the building footprint loaded from R2. The buffer is measured in RD New metres; touched GeoTOP columns define the exact area used to select CPTs and geotechnical boreholes from the BRO PMTiles archive. Use the download button to create the local `data/` inputs.
+Run `uvx marimo edit --sandbox --watch notebooks/01_get_data.py` to select data around the building footprint loaded from R2. The buffer is measured in RD New metres; touched GeoTOP columns define the exact area used to select CPTs and geotechnical boreholes from the BRO's REST API, by their delivered coordinates. Use the download button to create the local `data/` inputs: `geotop.nc` (all GeoTOP variables), `cpts.parquet` and `selection.json`. The notebook then writes the voxels as a bimpolars BimDataFrame, `geotop_bdf.parquet`, and shows them in the GeoSpeckleViewer.
+
+Run `uvx marimo edit --sandbox --watch notebooks/02_simulation_domains.py` to group the GeoTOP voxels into simulation domains: start from a preset, assign each GeoTOP unit to a domain, split by lithology or cut the model's base, and compare the domains' CPT coverage and qc/Rf distributions in tables, charts, a cross-section and 3D.
 
 Downloaded XMLs, GeoTOP voxels, CPT tables and selection manifests are generated locally and ignored by Git. No data directory is needed in a fresh checkout. The website loads its inputs separately from R2.
