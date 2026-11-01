@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CheckboxButton, CheckboxField } from "react-aria-components";
 import {
   type BasemapId,
@@ -25,8 +26,11 @@ export function MapLayersPanel({
   basemap,
   onBasemapChange,
 }: MapLayersPanelProps) {
+  const [panelOpen, setPanelOpen] = useState(() => window.matchMedia("(min-width: 601px)").matches);
   return (
-    <div className="rounded-sm border border-gray-300 bg-white/90 px-2 py-1.5 text-xs space-y-1">
+    <details className="map-layer-panel rounded-sm border border-gray-300 bg-white/95 px-2 py-1.5 text-xs" open={panelOpen} onToggle={(event) => setPanelOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer font-medium">Layers &amp; basemap</summary>
+      <div className="space-y-1 pt-1.5">
       <LayerToggle
         swatch={<AreaSwatch color={overlayColors.extent} dashed />}
         label="GeoTOP model extent"
@@ -45,7 +49,7 @@ export function MapLayersPanel({
       />
       <LayerToggle
         swatch={<AreaSwatch color={overlayColors.site} />}
-        label="Site plot"
+        label="BIM footprint"
         checked={visibility.site}
         onChange={(checked) => {
           onVisibilityChange("site", checked);
@@ -98,7 +102,8 @@ export function MapLayersPanel({
         }))}
         className="border-t border-gray-200 pt-1"
       />
-    </div>
+      </div>
+    </details>
   );
 }
 

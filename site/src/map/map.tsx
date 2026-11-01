@@ -12,10 +12,10 @@ import { useMapInteractions } from "./use-map-interactions";
  * the project overlays: the GeoTOP model extent, the site plot and the
  * BRO CPTs inside the extent, on top of the BRO locations PMTiles.
  */
-export function ProjectMap() {
+export function ProjectMap({ footprint }: { footprint: GeoJSON.Feature<GeoJSON.Polygon> }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { mapRef, styleReady, panel } = useMapInit(containerRef);
+  const { mapRef, styleReady, panel } = useMapInit(containerRef, footprint);
 
   useMapInteractions(mapRef);
 
@@ -30,7 +30,7 @@ export function ProjectMap() {
     <>
       <div
         ref={containerRef}
-        className="w-full h-[580px] max-h-[75vh] rounded-sm border border-gray-300"
+        className="project-map"
       />
 
       {panel &&

@@ -37,6 +37,7 @@ interface MapInitResult {
 
 export function useMapInit(
   containerRef: RefObject<HTMLDivElement | null>,
+  footprint: GeoJSON.Feature<GeoJSON.Polygon>,
 ): MapInitResult {
   const mapRef = useRef<MaplibreMap | null>(null);
   const [panel, setPanel] = useState<HTMLDivElement | null>(null);
@@ -50,7 +51,7 @@ export function useMapInit(
 
     const map = new MaplibreMap({
       container,
-      style: createMapStyle(),
+      style: createMapStyle(footprint),
       bounds: modelExtentBounds(),
       fitBoundsOptions: { padding: 48 },
       maxBounds,
@@ -79,7 +80,7 @@ export function useMapInit(
       map.remove();
       mapRef.current = null;
     };
-  }, [containerRef]);
+  }, [containerRef, footprint]);
 
   return { mapRef, styleReady, panel };
 }

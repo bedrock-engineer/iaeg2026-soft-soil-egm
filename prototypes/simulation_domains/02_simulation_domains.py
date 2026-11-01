@@ -33,7 +33,7 @@ def _(mo):
     2. the cross-section: what do the domains look like?
     3. the qc / Rf distributions: do the domains actually separate the CPT data?
 
-    Run `01_get_data.py` first to fill `data/`.
+    Run `notebooks/01_get_data.py` first to fill the repository’s local `data/` folder.
     """)
     return
 
@@ -54,7 +54,7 @@ def _():
 
 @app.cell
 def _(Path, bromodels, mo, pl, xr):
-    DATA_DIR = Path(mo.notebook_dir()) / "data"
+    DATA_DIR = Path(mo.notebook_dir()).parents[1] / "data"
     geotop = xr.open_dataset(DATA_DIR / "geotop.nc").load()
     cpts_raw = pl.read_parquet(DATA_DIR / "cpts.parquet")
 

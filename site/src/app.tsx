@@ -1,84 +1,76 @@
+import { useEffect, useState } from "react";
 import { ProjectMap } from "./map/map";
-import { modelExtent } from "./project-geometry";
+import { geotopCells, loadBuildingFootprint, modelExtent, modelParquetUrl } from "./project-geometry";
 
 const repoUrl = "https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm";
-
 const nf = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
-
+const width = modelExtent.xmax - modelExtent.xmin;
+const height = modelExtent.ymax - modelExtent.ymin;
 const extentFacts: Array<[label: string, value: string]> = [
   ["Location", "Overhoeks, Amsterdam Noord"],
-  [
-    "Centre (RD New)",
-    `${nf.format(modelExtent.centre_x)}, ${nf.format(modelExtent.centre_y)}`,
-  ],
-  [
-    "x (RD New)",
-    `${nf.format(modelExtent.xmin)} – ${nf.format(modelExtent.xmax)}`,
-  ],
-  [
-    "y (RD New)",
-    `${nf.format(modelExtent.ymin)} – ${nf.format(modelExtent.ymax)}`,
-  ],
-  [
-    "Size",
-    `${modelExtent.xmax - modelExtent.xmin} × ${modelExtent.ymax - modelExtent.ymin} m, ground level to ${modelExtent.zmin_nap} m NAP`,
-  ],
+  ["Plot centre (RD New)", `${nf.format(modelExtent.centre_x)}, ${nf.format(modelExtent.centre_y)}`],
+  ["x (RD New)", `${nf.format(modelExtent.xmin)} – ${nf.format(modelExtent.xmax)}`],
+  ["y (RD New)", `${nf.format(modelExtent.ymin)} – ${nf.format(modelExtent.ymax)}`],
+  ["Model size", `${width} × ${height} m`],
+  ["Model base", `${modelExtent.zmin_nap} m NAP`],
+  ["GeoTOP columns", `${geotopCells.features.length} · 100 × 100 m`],
 ];
 
 export function App() {
+  const [footprint, setFootprint] = useState<GeoJSON.Feature<GeoJSON.Polygon>>();
+  const [loadError, setLoadError] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active=true;
+    setLoadError(undefined);
+    void loadBuildingFootprint().then(value=>{if(active)setFootprint(value);}).catch(error=>{if(active)setLoadError(error instanceof Error ? error.message : String(error));});
+    return ()=>{active=false;};
+  },[attempt]);
+  const [introOpen, setIntroOpen] = useState(() => window.matchMedia("(min-width: 901px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 901px)");
+    const update = () => setIntroOpen(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
-      <header className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-          IAEG 2026 · 30 October 2026
-        </p>
-        <h1 className="text-3xl font-semibold text-balance">
-          Soft Soil EGM with GemPy
-        </h1>
-        <p className="max-w-prose text-gray-700">
-          An open-source workflow that builds a soft-soil engineering geological
-          model from GeoTOP and BRO CPTs, with GemPy, and shares it in Speckle.
-          The model covers a 400 × 500 m block around a fictitious building plot
-          in Overhoeks, Amsterdam Noord.
-        </p>
+    <div className="project-app">
+      <header className="project-bar">
+        <details className="project-intro" open={introOpen} onToggle={(event) => setIntroOpen(event.currentTarget.open)}>
+          <summary><h1>Soft Soil EGM with GemPy</h1></summary>
+          <p>An open-source workflow from GeoTOP and BRO ground investigation data to an engineering geological model, shared in Speckle.</p>
+        </details>
+        <a className="source-link" href={repoUrl}>Source on GitHub <span aria-hidden="true">↗</span></a>
       </header>
-
-      <ProjectMap />
-
-      <section className="grid gap-6 md:grid-cols-[1fr_auto]">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          {extentFacts.map(([label, value]) => (
-            <div key={label} className="contents">
-              <dt className="text-gray-500">{label}</dt>
-              <dd className="tabular-nums">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <nav className="flex flex-col gap-1 text-sm">
-          <a className="text-blue-700 hover:underline" href={repoUrl}>
-            Source code on GitHub
-          </a>
-          <a
-            className="text-blue-700 hover:underline"
-            href={`${repoUrl}/issues/1`}
-          >
-            Project map (issue #1)
-          </a>
-        </nav>
-      </section>
-
-      <footer className="border-t border-gray-200 pt-3 text-xs text-gray-500">
-        The model extent is 4 × 5 whole GeoTOP cells centred on the plot. The
-        site plot is fictitious. CPT locations from the{" "}
-        <a className="hover:underline" href="https://www.broloket.nl/">
-          BRO
-        </a>
-        . A{" "}
-        <a className="hover:underline" href="https://bedrock.engineer">
-          Bedrock.engineer
-        </a>{" "}
-        project.
-      </footer>
+      <main className="project-workspace">
+        <aside className="project-context" aria-label="About the model">
+          <p className="project-kicker">IAEG 2026 · 30 October 2026</p>
+          <h2>Amsterdam Noord</h2>
+          <p className="project-description">A {width} × {height} m block around a BIM model in Overhoeks. Explore the geological model extent alongside the ground investigations that inform it.</p>
+          <section className="project-facts" aria-labelledby="extent-heading">
+            <h3 id="extent-heading">Model extent</h3>
+            <dl>{extentFacts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+          </section>
+          <section className="project-data" aria-labelledby="data-heading">
+            <h3 id="data-heading">Ground investigation</h3>
+            <p>Cone penetration tests (CPT), geotechnical boreholes (BHR-GT), and geological boreholes (BHR-G) from the BRO.</p>
+            <p>CPTs inside the model extent are highlighted in violet. Hover over a point to see its BRO ID, depth, and available quality information.</p>
+            <a href="https://r2.eu.bedrock.engineer/bro_locations.pmtiles">BRO location data <span aria-hidden="true">↗</span></a>
+          </section>
+          <nav className="project-links" aria-label="Project links">
+            <a href={`${repoUrl}/issues/1`}>Project plan <span aria-hidden="true">↗</span></a>
+            <a href="https://www.broloket.nl/">BROloket <span aria-hidden="true">↗</span></a>
+          </nav>
+          <footer className="project-footer">Building footprint read directly from the <a href={modelParquetUrl}>R2 Parquet</a>.<br/>A <a href="https://bedrock.engineer">Bedrock.engineer</a> project.</footer>
+        </aside>
+        <section className="project-map-pane" aria-label="GeoTOP extent and BRO ground investigations">
+          <div className="project-map-caption"><span>GeoTOP & ground investigation</span><span>Hover to inspect · use the layers panel to compare</span></div>
+          {footprint ? <ProjectMap footprint={footprint} /> : <div className="model-loading" role="status">
+            {loadError ? <><p>Could not load the R2 model: {loadError}</p><button type="button" onClick={()=>setAttempt(value=>value+1)}>Retry loading</button></> : <p>Loading BIM footprint from R2 Parquet…</p>}
+          </div>}
+        </section>
+      </main>
     </div>
   );
 }

@@ -9,7 +9,6 @@ import { Protocol } from "pmtiles";
 import {
   geotopCells,
   modelExtentFeature,
-  sitePlotFeature,
 } from "../project-geometry";
 
 // Register the PMTiles protocol once per app load
@@ -118,7 +117,7 @@ const insideModelExtent: FilterSpecification = [
 ];
 
 /**
- * Filter for the unclustered tile point layers. CPTs inside the model
+ * Filter for the unclustered CPT point layer. CPTs inside the model
  * extent are excluded so each of them renders exactly once, as its
  * highlighted marker. Clusters are baked into the tiles by tippecanoe,
  * so their counts still include them.
@@ -223,7 +222,7 @@ function broPointLayer(layer: BROLocationLayer): LayerSpecification {
     type: "circle",
     source: "bro",
     "source-layer": layer,
-    filter: broPointFilter,
+    filter: ["!", ["has", "point_count"]],
     paint: {
       "circle-color": overlayColors[layer],
       "circle-opacity": 0.85,
@@ -341,7 +340,7 @@ const overlayLayers: Array<LayerSpecification> = [
   },
 ];
 
-export function createMapStyle(): StyleSpecification {
+export function createMapStyle(footprint: GeoJSON.Feature<GeoJSON.Polygon>): StyleSpecification {
   // All basemaps are part of the style; switching toggles layer
   // visibility instead of adding/removing sources.
   const basemapSources = Object.fromEntries(
@@ -374,7 +373,7 @@ export function createMapStyle(): StyleSpecification {
       ...basemapSources,
       extent: { type: "geojson", data: modelExtentFeature },
       geotop: { type: "geojson", data: geotopCells },
-      site: { type: "geojson", data: sitePlotFeature },
+      site: { type: "geojson", data: footprint },
       bro: {
         type: "vector",
         url: `pmtiles://${broPmtilesUrl}`,

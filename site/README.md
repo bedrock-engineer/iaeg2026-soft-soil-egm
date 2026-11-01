@@ -1,24 +1,31 @@
 # Project home page
 
-The home page of this repo, published with GitHub Pages at
-<https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/>.
+Published with GitHub Pages at <https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/>.
+The compact header, typography and map workspace follow the [bimpolars demo](https://bedrock-engineer.github.io/bimpolars/).
 
-It shows the GeoTOP model extent, the fictitious site plot and the BRO CPTs
-inside the extent on a MapLibre map. The map is ported from
-[bro-xml-app](https://github.com/bedrock-engineer/bro-xml-app)
-(`app/components/map/`): same basemaps, BRO locations PMTiles, layers panel and
-CPT triangles, without the address search and file loading.
+The browser reads the `geog` column directly from the public model:
+<https://r2.eu.bedrock.engineer/bimpolars/rvt-advanced-sample/rvt-advanced-sample-combined-arch-str-bdf.parquet>.
+Hyparquet uses HTTP range requests and GeoParquet metadata to decode the Polygon Z/MultiPolygon Z WKB.
+The architecture and structure footprints are unioned in RD New metres at 1 mm horizontal precision;
+the largest polygon becomes the building footprint on the map. No stored or generated geometry files,
+root `data/` folder, Python process, or local model cache is needed by this site.
 
-- Geometry: `../data/model_extent.geojson` and `../data/site_plot.geojson`
-  (WGS 84, written by `../data/make_project_geometry.py`), read by
-  `src/project-geometry.ts`
-- CPTs in the model extent: the PMTiles CPTs, picked with a `within` filter
+`src/project-geometry.ts` contains the model URL and the 500 × 500 m demo extent/grid settings.
+It constructs 25 GeoTOP column footprints in the browser. These are display footprints, not downloaded GeoTOP voxel values.
+
+BRO locations load from <https://r2.eu.bedrock.engineer/bro_locations.pmtiles>:
+`cpt`, `bhrgt`, and `bhrg` layers with visibility controls and hover details. CPTs inside the model extent
+are highlighted in violet; boreholes remain visible inside and outside the extent.
 
 ```sh
-npm install
+npm ci
 npm run dev     # http://localhost:5173/iaeg2026-soft-soil-egm/
 npm run build   # static site in dist/
 ```
 
-`.github/workflows/pages.yml` builds and deploys on every push to `main` that
-touches `site/`.
+The model is fetched at runtime; a loading message and retry control handle remote failures.
+Internet access and R2's CORS/range support are required for the model, basemaps, and BRO tiles.
+The current bimpolars upstream demo precomputes viewer traits at build time; this site reads Parquet
+in the browser rather than copying that intermediate-file pipeline.
+
+`.github/workflows/pages.yml` builds and deploys changes to `site/` pushed to `main`.

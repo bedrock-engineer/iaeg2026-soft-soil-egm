@@ -34,7 +34,7 @@ function popupHtml(feature: MapGeoJSONFeature): string {
   }
 
   if (layerId === "site-fill") {
-    return `<div class="text-xs"><strong>Site plot</strong><br/>Fictitious building plot</div>`;
+    return `<div class="text-xs"><strong>BIM footprint</strong><br/>Combined architecture and structure model</div>`;
   }
 
   const { xmin, xmax, ymin, ymax, zmin_nap } = modelExtent;
