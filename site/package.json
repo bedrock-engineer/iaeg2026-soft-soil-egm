@@ -1,6 +1,6 @@
 {
   "name": "iaeg2026-soft-soil-egm-site",
-  "description": "Project home page for the IAEG 2026 soft-soil EGM demo, with the model extent on a MapLibre map",
+  "description": "Amsterdam Noord BIM viewer and footprint map, adapted from the bimpolars demo",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,23 +9,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anywidget/types": "^0.4.0",
+    "@speckle/objectloader2": "^2.31.14",
+    "@speckle/viewer": "^2.31.14",
+    "3d-tiles-renderer": "^0.3.46",
     "hyparquet": "^1.32.0",
     "hyparquet-compressors": "^1.1.2",
     "maplibre-gl": "^6.15.0",
     "pmtiles": "^4.5.0",
     "polygon-clipping": "^0.15.7",
     "proj4": "^2.22.0",
-    "react": "^19.3.1",
-    "react-aria-components": "^1.21.1",
-    "react-dom": "^19.3.1"
+    "three": "0.140.2"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.3",
     "@types/geojson": "^7946.0.16",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "tailwindcss": "^4.3.3",
+    "@types/three": "0.140.0",
     "typescript": "^5.9.3",
     "vite": "^8.1.0"
   },
@@ -36,5 +34,9 @@
     "printWidth": 80,
     "tabWidth": 2,
     "endOfLine": "lf"
+  },
+  "overrides": {
+    "three": "$three",
+    "@types/three": "$@types/three"
   }
 }
