@@ -1,3 +1,14 @@
+# /// script
+# dependencies = [
+#     "bromodels==0.0.1",
+#     "marimo>=0.25.2",
+#     "numpy==2.5.4",
+#     "polars==2.1.0",
+#     "pyproj==3.8.0",
+#     "specklepy==2026.9.1",
+#     "trimesh==5.2.0",
+# ]
+# ///
 import marimo
 
 __generated_with = "0.19.7"
