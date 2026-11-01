@@ -198,11 +198,23 @@ def selection(
     buffer_rd = footprint_rd.buffer(buffer_distance.value)
     geotop_columns = touched_geotop_columns(buffer_rd)
     selection_rd = geotop_columns.geometry.union_all()
-    with mo.status.spinner("Reading selected CPT and BHR-GT locations from PMTiles…"):
+    with mo.status.spinner(
+        "Reading selected CPT and BHR-GT locations from PMTiles…"
+    ):
         selected_locations = selected_bro_locations(selection_rd)
-    selected_cpt_ids = sorted(selected_locations.loc[selected_locations["kind"] == "cpt", "bro_id"].tolist())
-    selected_bhrgt_ids = sorted(selected_locations.loc[selected_locations["kind"] == "bhrgt", "bro_id"].tolist())
-    mo.md(f"**{len(geotop_columns)} GeoTOP columns · {len(selected_cpt_ids)} CPTs · {len(selected_bhrgt_ids)} geotechnical boreholes**. Selected against the exact cell union, including its boundary. Locations in vector tiles have metre-scale quantization; downloaded profile coordinates are checked again.")
+    selected_cpt_ids = sorted(
+        selected_locations.loc[
+            selected_locations["kind"] == "cpt", "bro_id"
+        ].tolist()
+    )
+    selected_bhrgt_ids = sorted(
+        selected_locations.loc[
+            selected_locations["kind"] == "bhrgt", "bro_id"
+        ].tolist()
+    )
+    mo.md(
+        f"**{len(geotop_columns)} GeoTOP columns · {len(selected_cpt_ids)} CPTs · {len(selected_bhrgt_ids)} geotechnical boreholes**. Selected against the exact cell union, including its boundary. Locations in vector tiles have metre-scale quantization; downloaded profile coordinates are checked again."
+    )
     return (
         buffer_rd,
         geotop_columns,
@@ -219,7 +231,14 @@ def settings(Path, mo):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     BIM_URL = "https://r2.eu.bedrock.engineer/bimpolars/rvt-advanced-sample/rvt-advanced-sample-combined-arch-str-bdf.parquet"
     BRO_LOCATIONS_URL = "https://r2.eu.bedrock.engineer/bro_locations.pmtiles"
-    buffer_distance = mo.ui.slider(start=0, stop=1000, step=25, value=200, label="Buffer around building footprint (m)", show_value=True)
+    buffer_distance = mo.ui.slider(
+        start=0,
+        stop=500,
+        step=25,
+        value=200,
+        include_input=True,
+        label="Buffer around building footprint (m)",
+    )
     MODEL_BOTTOM_NAP = -50
     buffer_distance
     return (
@@ -346,10 +365,22 @@ def download(
     selected_cpt_ids,
     selection_rd,
 ):
-    mo.stop(not download_selected.value, mo.md("Select an area above, then press **Download selected data**."))
+    mo.stop(
+        not download_selected.value,
+        mo.md("Select an area above, then press **Download selected data**."),
+    )
     with mo.status.spinner("Downloading selected model data…"):
-        download_manifest = download_selection(geotop_columns, selection_rd, selected_cpt_ids, selected_bhrgt_ids, MODEL_BOTTOM_NAP, buffer_distance.value)
-    mo.md(f"Saved selection **{download_manifest['selection_id']}** under `{DATA_DIR}`. {len(download_manifest['profile_locations_outside_selection'])} CPTs were excluded after checking their original coordinates.")
+        download_manifest = download_selection(
+            geotop_columns,
+            selection_rd,
+            selected_cpt_ids,
+            selected_bhrgt_ids,
+            MODEL_BOTTOM_NAP,
+            buffer_distance.value,
+        )
+    mo.md(
+        f"Saved selection **{download_manifest['selection_id']}** under `{DATA_DIR}`. {len(download_manifest['profile_locations_outside_selection'])} CPTs were excluded after checking their original coordinates."
+    )
     return
 
 
