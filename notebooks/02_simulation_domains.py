@@ -109,8 +109,10 @@ def choose_intro(mo):
     mo.md(r"""
     ## Choose the domains
 
-    Start from a preset, then change which domain each GeoTOP unit belongs to, whether the domains split
-    by lithology, and how deep the model is simulated.
+    Start from a preset, then change which domain each stratigraphic unit belongs to, whether the domains
+    split by lithology group, and how deep the model is simulated. Each stratigraphic unit is shown in its
+    GeoTOP colour, with the share of its voxels in each GeoTOP lithology class; hover over the bar for
+    the numbers.
     """)
     return
 
@@ -126,46 +128,60 @@ def legends(bromodels, pl):
 
 
     STRAT_COLORS = _colors(pl.from_pandas(bromodels.GeoTop.geotop_stratigraphic_unit()), "STR_UNIT_CD")
-    _lith_colors = _colors(pl.from_pandas(bromodels.GeoTop.geotop_lithology_class()), "LITHO_CLASS_CD")
+    LITH_COLORS = _colors(pl.from_pandas(bromodels.GeoTop.geotop_lithology_class()), "LITHO_CLASS_CD")
     # GeoTOP's lithology classes grouped the way CPTs tell them apart, each group in a typical class's colour
     LITH_GROUPS = {"v": "peat", "k": "clay", "kz": "clayey sand", "zf": "sand", "zm": "sand", "zg": "sand", "g": "sand", "a": "fill"}
-    LITH_GROUP_COLORS = {_group: _lith_colors[_code] for _code, _group in [("v", "peat"), ("k", "clay"), ("kz", "clayey sand"), ("zm", "sand"), ("a", "fill")]}
-    return LITH_GROUPS, LITH_GROUP_COLORS, STRAT_COLORS
+    LITH_GROUP_COLORS = {_group: LITH_COLORS[_code] for _code, _group in [("v", "peat"), ("k", "clay"), ("kz", "clayey sand"), ("zm", "sand"), ("a", "fill")]}
+    return LITH_COLORS, LITH_GROUPS, LITH_GROUP_COLORS, STRAT_COLORS
 
 
 @app.cell(hide_code=True)
 def presets(mo):
-    # Thin units and channel deposits pooled into the main unit they belong to; no fill simulated
+    # Channel deposits and layers pooled into the laagpakket they belong to (ANAWA into NAWA; ENAWO and
+    # NAWOVE into NAWO), the undivided Formatie van Boxtel into BXWISIKO and the Basisveen into the
+    # Hollandveen; the anthropogenic fill (AAOP) is not simulated
     _POOLED = {"ANAWA": "NAWA", "ENAWO": "NAWO", "NAWOVE": "NAWO", "BX": "BXWISIKO", "NIBA": "NIHO", "AAOP": "not simulated"}
     PRESETS = {
-        "Every GeoTOP unit": {"units": {}, "split": False, "cut": False},
-        "Main units, thin units and channels pooled": {"units": _POOLED, "split": False, "cut": False},
-        "Main units, cut at the deepest CPT": {"units": _POOLED, "split": False, "cut": True},
-        "Main units split by lithology": {"units": _POOLED, "split": True, "cut": False},
-        "Lithology only": {"units": {"AAOP": "not simulated"}, "all": "all units", "split": True, "cut": False},
+        "Every stratigraphic unit": {"units": {}, "split": False, "cut": False},
+        "Stratigraphic units, channel deposits and thin layers pooled": {"units": _POOLED, "split": False, "cut": False},
+        "Pooled stratigraphic units, cut at the deepest CPT": {"units": _POOLED, "split": False, "cut": True},
+        "Pooled stratigraphic units, split by lithology group": {"units": _POOLED, "split": True, "cut": False},
+        "Lithology groups only": {"units": {"AAOP": "not simulated"}, "all": "all stratigraphic units", "split": True, "cut": False},
     }
-    preset = mo.ui.dropdown(options=list(PRESETS), value="Main units, thin units and channels pooled", label="Start from")
+    preset = mo.ui.dropdown(
+        options=list(PRESETS), value="Stratigraphic units, channel deposits and thin layers pooled", label="Start from"
+    )
     preset
     return PRESETS, preset
 
 
-@app.cell(hide_code=True)
-def controls(PRESETS, cpts, mo, np, pl, preset, voxels):
-    # The units in the model from the top down, each with the domain the preset puts it in
+@app.cell(hide_code=True, expand_output=True)
+def controls(
+    LITH_COLORS,
+    PRESETS,
+    STRAT_COLORS,
+    cpts,
+    mo,
+    np,
+    pl,
+    preset,
+    voxels,
+):
+    # The stratigraphic units in the model from the top down, each with the domain the preset puts it in
     _units = (
         voxels.group_by("stratigraphic_unit")
-        .agg(pl.max("z").alias("top"), pl.len().alias("voxels"), pl.first("geologische_eenheid"))
+        .agg(pl.max("z").alias("top"), pl.min("z").alias("base"), pl.len().alias("voxels"), pl.first("geologische_eenheid"))
         .sort("top", descending=True)
     )
     _preset = PRESETS[preset.value]
-    _options = [*_units["stratigraphic_unit"], "all units", "not simulated"]
+    _options = [*_units["stratigraphic_unit"], "all stratigraphic units", "not simulated"]
     unit_domains = mo.ui.dictionary(
         {
             _unit: mo.ui.dropdown(_options, value=_preset["units"].get(_unit, _preset.get("all", _unit)))
             for _unit in _units["stratigraphic_unit"]
         }
     )
-    split_by_lithology = mo.ui.switch(value=_preset["split"], label="Split each domain by lithology")
+    split_by_lithology = mo.ui.switch(value=_preset["split"], label="Split each domain by lithology group")
     # Below the deepest CPT reading no CPT conditions a voxel
     _deepest_cpt = float(np.floor(cpts["z"].min() * 2) / 2)
     base_cut = mo.ui.slider(
@@ -174,17 +190,63 @@ def controls(PRESETS, cpts, mo, np, pl, preset, voxels):
     )
     min_metres = mo.ui.slider(start=0.5, stop=5, step=0.5, value=1, show_value=True, label="A CPT conditions a domain with at least (m)")
 
-    _rows = "\n".join(
-        f"| {_r['stratigraphic_unit']} | {_r['geologische_eenheid']} | {_r['top']:+.1f} | {_r['voxels']} | {unit_domains[_r['stratigraphic_unit']]} |"
+
+    def _text_color(hex_color):
+        # Dark text on light colours, white on dark ones
+        _r, _g, _b = (int(hex_color[_i : _i + 2], 16) for _i in (1, 3, 5))
+        return "black" if 0.299 * _r + 0.587 * _g + 0.114 * _b > 140 else "white"
+
+
+    def _colored(text, color):
+        return f'<td style="background:{color};color:{_text_color(color)};padding:2px 6px">{text}</td>'
+
+
+    # Each stratigraphic unit's voxels per GeoTOP lithology class, as a bar of the classes' colours
+    _lithology = voxels.group_by("stratigraphic_unit", "lithoklasse", "grondsoort").len().sort("len", descending=True)
+
+
+    def _lithology_bar(unit):
+        _rows = _lithology.filter(pl.col("stratigraphic_unit") == unit)
+        _total = _rows["len"].sum()
+        _segments = "".join(
+            f'<div title="{_r["grondsoort"]}: {_r["len"]} voxels, {100 * _r["len"] / _total:.0f} %" '
+            f'style="width:{100 * _r["len"] / _total}%;background:{LITH_COLORS[_r["lithoklasse"]]}"></div>'
+            for _r in _rows.iter_rows(named=True)
+        )
+        return f'<div style="display:flex;width:160px;height:16px;border:1px solid #999">{_segments}</div>'
+
+
+    _rows = "".join(
+        "<tr>"
+        + _colored(_r["stratigraphic_unit"], STRAT_COLORS[_r["stratigraphic_unit"]])
+        + _colored(_r["geologische_eenheid"], STRAT_COLORS[_r["stratigraphic_unit"]])
+        + f'<td style="text-align:right;padding:2px 6px">{_r["top"]:+.1f}</td>'
+        + f'<td style="text-align:right;padding:2px 6px">{_r["base"]:+.1f}</td>'
+        + f'<td style="text-align:right;padding:2px 6px">{_r["voxels"]}</td>'
+        + f'<td style="padding:2px 6px">{_lithology_bar(_r["stratigraphic_unit"])}</td>'
+        + f'<td style="padding:2px 6px">{unit_domains[_r["stratigraphic_unit"]]}</td>'
+        + "</tr>"
         for _r in _units.iter_rows(named=True)
     )
-    mo.hstack(
+    _header = "".join(
+        f'<th style="text-align:left;padding:2px 6px;white-space:nowrap">{_h}</th>'
+        for _h in ["Code", "Stratigraphic unit", "Top (m NAP)", "Base (m NAP)", "Voxels", "Lithology classes", "Domain"]
+    )
+    # The lithology classes in the model, from the most voxels to the fewest
+    _classes = _lithology.group_by("lithoklasse", "grondsoort").agg(pl.sum("len")).sort("len", descending=True)
+    _legend = " ".join(
+        f'<span style="white-space:nowrap;margin-right:12px">'
+        f'<span style="display:inline-block;width:12px;height:12px;background:{LITH_COLORS[_r["lithoklasse"]]};'
+        f'vertical-align:middle;margin-right:4px"></span>{_r["grondsoort"]}</span>'
+        for _r in _classes.iter_rows(named=True)
+    )
+    mo.vstack(
         [
-            mo.md("| Unit | GeoTOP unit | Top (m NAP) | Voxels | Domain |\n|---|---|--:|--:|---|\n" + _rows),
-            mo.vstack([split_by_lithology, base_cut, min_metres, mo.md(f"The deepest CPT reading is at {_deepest_cpt:+.1f} m NAP.")]),
-        ],
-        widths=[3, 1],
-        gap=2,
+            mo.hstack([split_by_lithology, base_cut, min_metres], justify="start", gap=2),
+            mo.md(f"The deepest CPT reading is at {_deepest_cpt:+.1f} m NAP."),
+            mo.Html(f'<table style="border-collapse:separate;border-spacing:0 2px"><tr>{_header}</tr>{_rows}</table>'),
+            mo.Html(f'<div style="font-size:0.85em">Lithology classes: {_legend}</div>'),
+        ]
     )
     return base_cut, min_metres, split_by_lithology, unit_domains
 
@@ -231,7 +293,7 @@ def domains(
     _unit_domain = pl.col("stratigraphic_unit").replace_strict(unit_domains.value)
     if split_by_lithology.value:
         _domain = (
-            pl.when(_unit_domain == "all units")
+            pl.when(_unit_domain == "all stratigraphic units")
             .then(_lith_group)
             .otherwise(pl.concat_str([_unit_domain, _lith_group], separator=" · "))
         )
@@ -242,7 +304,7 @@ def domains(
     voxel_domains = voxels.with_columns(DOMAIN)
     sample_domains = samples.with_columns(DOMAIN).drop_nulls("domain")
 
-    # The domains from the top down, in GeoTOP's colour where a domain is one unit or one lithology group
+    # The domains from the top down, in GeoTOP's colour where a domain is one stratigraphic unit or one lithology group
     _TABLEAU20 = [
         "#4e79a7", "#a0cbe8", "#f28e2b", "#ffbe7d", "#59a14f", "#8cd17d", "#b6992d", "#f1ce63", "#499894", "#86bcb6",
         "#e15759", "#ff9d9a", "#79706e", "#bab0ac", "#d37295", "#fabfd2", "#b07aa1", "#d4a6c8", "#9d7660", "#d7b5a6",

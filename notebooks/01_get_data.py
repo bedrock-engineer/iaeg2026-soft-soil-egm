@@ -495,13 +495,28 @@ def geotop_voxels(geotop_xr, lithok_map, mo, pl, strat_map):
 
 @app.cell
 def geotop_units(geotop_df, mo, pl):
-    # One row per geological unit, from the top down: its topmost voxel, with the number of voxels in the unit
-    mo.ui.table(
+    # One row per geological unit, from the top down: its topmost voxel, with the number of voxels in the unit.
+    # The unit and soil type come first, in their GeoTOP colours.
+    _names = ["geologische_eenheid", "stratigraphic_unit", "grondsoort", "lithoklasse"]
+    _units = (
         geotop_df.sort("z", descending=True)
         .group_by("geologische_eenheid", maintain_order=True)
-        .agg(pl.all().first(), pl.len().alias("voxels")),
-        style_cell=lambda _row, column, value: {"backgroundColor": value} if column.endswith("_hex") else {},
+        .agg(pl.all().first(), pl.len().alias("n_voxels"))
+        .select(*_names, "n_voxels", pl.all().exclude(*_names, "n_voxels"))
     )
+    _colors = dict(zip(_names, [_units["strat_hex"]] * 2 + [_units["lithok_hex"]] * 2))
+
+
+    def _style(row, column, value):
+        if column not in _colors:
+            return {}
+        _color = _colors[column][int(row)]
+        # Dark text on light colours, white on dark ones
+        _r, _g, _b = (int(_color[_i : _i + 2], 16) for _i in (1, 3, 5))
+        return {"backgroundColor": _color, "color": "black" if 0.299 * _r + 0.587 * _g + 0.114 * _b > 140 else "white"}
+
+
+    mo.ui.table(_units.drop("strat_hex", "lithok_hex"), style_cell=_style, page_size=_units.height, selection=None)
     return
 
 
