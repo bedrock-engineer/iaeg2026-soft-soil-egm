@@ -1,3 +1,7 @@
 node_modules
 dist
 generated/
+
+# Vendored TypeScript source, not Python build output
+!vendor/geospeckle-viewer/lib/
+!vendor/geospeckle-viewer/lib/**
