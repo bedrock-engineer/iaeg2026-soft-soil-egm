@@ -1,0 +1,395 @@
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+/* Side by side: the 3D view and the footprint map at full height under a one-line bar, a
+   draggable separator between them (splitter.ts), and over them a strip of instructions split
+   where the separator is; stacked below 900 px, with a strip on the right that holds them and
+   scrolls the page while the panes keep their touches */
+:root {
+  --bg: #f4f5f7;
+  --fg: #1b2230;
+  --muted: #586174;
+  --panel: #ffffff;
+  --line: #d6dae2;
+  --accent: #2f6fde;
+  --separator: #e3e6ec;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.45 var(--font);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px
+    max(16px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.intro {
+  flex: 1 1 520px;
+  min-width: 0;
+}
+
+h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* The intro's summary is the title: a plain heading side by side, where the intro is always open
+   (index.html), and a toggle for it when stacked */
+.intro > summary {
+  display: block;
+  list-style: none;
+  pointer-events: none;
+}
+
+.intro > summary::-webkit-details-marker {
+  display: none;
+}
+
+.intro p {
+  margin: 2px 0 0;
+  max-width: 110ch;
+  color: var(--muted);
+}
+
+a {
+  color: var(--accent);
+}
+
+.panes {
+  display: grid;
+  /* splitter.ts sets the shares */
+  grid-template-columns:
+    minmax(0, var(--viewer-share, 3fr)) auto
+    minmax(0, var(--map-share, 2fr));
+  /* The instructions' two lines, then the panes */
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  background: var(--line);
+}
+
+/* "Click a BIM element to see its footprint on the map": one sentence over the panes, in the look
+   of the phone's strip, split at a word space that sits over the separator's middle so that it
+   moves with it. The separator stops under the strip to leave the sentence whole */
+.how {
+  margin: 0;
+  padding: 0 12px;
+  background: var(--separator);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Over the viewer and the separator, ending half a word space short of the separator's middle */
+.how-click {
+  grid-row: 1;
+  grid-column: 1 / 3;
+  padding-top: 3px;
+  padding-right: calc(5px + 0.14em);
+  text-align: right;
+}
+
+/* A subtitle to the sentence */
+.how-shift {
+  grid-row: 2;
+  grid-column: 1 / 3;
+  padding-right: calc(5px + 0.14em);
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 13px;
+  font-style: italic;
+  opacity: 0.85;
+  text-align: right;
+}
+
+/* Starting half a word space past the separator's middle, which is 5 px left of its column */
+.how-see {
+  grid-row: 1 / span 2;
+  grid-column: 3;
+  margin-left: calc(-5px + 0.14em);
+  padding-left: 0;
+  padding-top: 3px;
+  border-bottom: 1px solid var(--line);
+}
+
+#viewer-pane {
+  grid-area: 3 / 1;
+}
+
+#map-pane {
+  grid-area: 3 / 3;
+}
+
+.splitter {
+  grid-row: 3;
+  grid-column: 2;
+  position: relative;
+  width: 10px;
+  border-inline: 1px solid var(--line);
+  background: var(--separator);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* The grip */
+.splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 36px;
+  border-radius: 1px;
+  background: var(--muted);
+  transform: translate(-50%, -50%);
+}
+
+.splitter:hover,
+.resizing .splitter {
+  background: #cfdcf6;
+}
+
+.splitter:hover::after,
+.resizing .splitter::after {
+  background: var(--accent);
+}
+
+.splitter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* While dragging: no text selection, and the cursor stays over the panes */
+.resizing,
+.resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.basemaps {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+}
+
+.basemaps button {
+  padding: 5px 10px;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.basemaps button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.basemaps button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.card {
+  position: absolute;
+  right: 10px;
+  bottom: 34px;
+  left: 10px;
+  max-width: 380px;
+  margin-left: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.18);
+}
+
+.rail {
+  display: none;
+}
+
+.card:empty {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.card p {
+  margin: 0;
+}
+
+.card .class {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.card .name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.card .storey,
+.card .hint {
+  color: var(--muted);
+}
+
+.card ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  body {
+    display: block;
+    height: auto;
+  }
+
+  .how,
+  .splitter {
+    display: none;
+  }
+
+  .intro > summary {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  /* A chevron that turns up once the intro is open */
+  .intro > summary::after {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin: 6px 4px 0 0;
+    border: solid var(--muted);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  .intro[open] > summary::after {
+    margin-top: 10px;
+    transform: rotate(-135deg);
+  }
+
+  .panes {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-rows: 65vh 60vh;
+    /* Without the browser's toolbars, so that the panes keep their size while it scrolls */
+    grid-template-rows: 65svh 60svh;
+    gap: 1px;
+  }
+
+  /* The panes never scroll the page: their touches move the camera and the map (the viewer and
+     MapLibre set touch-action: none on their own elements too), the strip's scroll it */
+  .pane {
+    touch-action: none;
+  }
+
+  #viewer-pane {
+    grid-area: 1 / 1;
+  }
+
+  #map-pane {
+    grid-area: 2 / 1;
+  }
+
+  .rail {
+    display: grid;
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    grid-template-rows: subgrid;
+    place-items: center;
+    background: var(--separator);
+    color: var(--muted);
+    font-size: 13px;
+    touch-action: pan-y;
+  }
+
+  .rail p {
+    margin: 0;
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+  }
+
+  .rail p + p::before {
+    content: "↕ ";
+    text-orientation: upright;
+  }
+}
+
+/* The BRO archive is the only additional map control beyond the upstream baseline. */
+.bro-layers { position:absolute; top:48px; right:10px; padding:6px 9px; border:1px solid var(--line);border-radius:6px;background:var(--panel);box-shadow:0 1px 4px #00000026;font-size:12px; }
+.bro-layers summary { cursor:pointer; }
+.bro-layers label { display:flex;align-items:center;gap:6px;margin-top:6px;cursor:pointer; }
+.bro-layers label span {width:9px;height:9px;border-radius:50%;}
+.context-warning {position:absolute;left:8px;bottom:20px;max-width:calc(100% - 16px);background:#fff;color:#9b1c1c;padding:6px 8px;font-size:12px;}

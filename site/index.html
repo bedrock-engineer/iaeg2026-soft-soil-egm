@@ -1,22 +1,109 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Soft Soil EGM · IAEG 2026</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <link rel="icon" href="%BASE_URL%favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%bedrock.svg" />
+    <title>Amsterdam Noord GeoBIM</title>
     <meta
       name="description"
-      content="Open-source soft-soil engineering geological model of Overhoeks, Amsterdam Noord, built from GeoTOP and BRO CPTs."
+      content="Revit architecture and structure in Amsterdam Noord, read from R2 Parquet beside a footprint and BRO map."
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400..700;1,400&display=swap"
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/"
     />
+    <meta property="og:title" content="Amsterdam Noord GeoBIM" />
+    <meta
+      property="og:description"
+      content="Revit architecture and structure in Amsterdam Noord, read from R2 Parquet beside a footprint and BRO map."
+    />
+    <link rel="stylesheet" href="/src/baseline/style.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header class="bar">
+      <!-- Open beside each other, collapsed to the title when stacked: a tap opens it -->
+      <details class="intro">
+        <summary>
+          <h1>Amsterdam Noord GeoBIM</h1>
+        </summary>
+        <p>
+          Revit’s advanced sample project in
+          <strong>Overhoeks, Amsterdam Noord</strong>: the architecture and
+          structure models combined into one BimDataFrame.
+        </p>
+        <p>
+          Read directly from
+          <a
+            href="https://r2.eu.bedrock.engineer/bimpolars/rvt-advanced-sample/rvt-advanced-sample-combined-arch-str-bdf.parquet"
+            >Parquet on R2</a
+          >, among OpenStreetMap and the 3D BAG. Click an element to see its
+          footprint on the map.
+        </p>
+      </details>
+      <script>
+        // Before the first paint, so that the intro neither flashes on a phone nor pops in
+        {
+          const intro = document.querySelector(".intro");
+          const sideBySide = matchMedia("(min-width: 901px)");
+          intro.open = sideBySide.matches;
+          sideBySide.addEventListener(
+            "change",
+            () => (intro.open = sideBySide.matches),
+          );
+        }
+      </script>
+    </header>
+    <main class="panes">
+      <!-- The side-by-side layout's instructions, a sentence split where the panes are -->
+      <p class="how how-click">Click a BIM element</p>
+      <p class="how how-see">to see its footprint on the map</p>
+      <p class="how how-shift">Shift-click to select multiple</p>
+      <section id="viewer-pane" class="pane" aria-label="3D view of the model">
+        <div id="viewer"></div>
+        <p id="loading" class="loading">
+          Loading architecture and structure from R2 Parquet…
+        </p>
+      </section>
+      <div
+        id="splitter"
+        class="splitter"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-controls="viewer-pane map-pane"
+        aria-label="Width of the 3D view and the map"
+        title="Drag to resize; double-click to reset"
+      ></div>
+      <section id="map-pane" class="pane" aria-label="Footprint map">
+        <div id="map"></div>
+        <div class="basemaps" role="group" aria-label="Basemap">
+          <button type="button" data-basemap="topographic" aria-pressed="true">
+            Topographic
+          </button>
+          <button type="button" data-basemap="aerial" aria-pressed="false">
+            Aerial photo
+          </button>
+        </div>
+        <!-- Empty, and so out of sight, until something is selected -->
+        <aside
+          id="selection"
+          class="card"
+          aria-live="polite"
+          data-ids="[]"
+          data-drawn="[]"
+        ></aside>
+      </section>
+      <!-- The stacked layout's: the strip where a swipe scrolls the page, the panes take the
+           touches for the camera and the map -->
+      <aside class="rail">
+        <p>Tap a BIM element to see its footprint on the map</p>
+        <p>Swipe here to scroll</p>
+      </aside>
+    </main>
+    <script type="module" src="./src/baseline/main.ts"></script>
   </body>
 </html>
