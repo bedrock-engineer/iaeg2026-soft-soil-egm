@@ -83,7 +83,7 @@ def _(bpl):
 @app.cell(hide_code=True)
 def _(combined_arch_str_bimdf, gpd):
     # The elements' footprints in plan, in longitude and latitude without heights
-    combined_arch_str_gdf = gpd.GeoDataFrame(
+    combined_arch_str_geodf = gpd.GeoDataFrame(
         combined_arch_str_bimdf.select(
             "model_name", "class", "name", "id"
         ).to_pandas(),
@@ -97,13 +97,13 @@ def _(combined_arch_str_bimdf, gpd):
         {"layer": ["Footprint of arch and str combined"]},
         geometry=[
             max(
-                gpd.GeoSeries([combined_arch_str_gdf.union_all()]).explode(),
+                gpd.GeoSeries([combined_arch_str_geodf.union_all()]).explode(),
                 key=lambda _part: _part.area,
             )
         ],
         crs="OGC:CRS84",
     )
-    return combined_arch_str_gdf, combined_arch_str_outline
+    return combined_arch_str_geodf, combined_arch_str_outline
 
 
 @app.cell(hide_code=True)
@@ -128,11 +128,11 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(combined_arch_str_gdf, combined_arch_str_outline, selected_elements):
+def _(combined_arch_str_geodf, combined_arch_str_outline, selected_elements):
     # The model's footprint on a web map, with the elements selected in the GeoSpeckleViewer in red.
     # The footprint is the background, without a tooltip; its legend also names the selection.
-    _selected = combined_arch_str_gdf[
-        combined_arch_str_gdf["id"].isin(selected_elements["id"])
+    _selected = combined_arch_str_geodf[
+        combined_arch_str_geodf["id"].isin(selected_elements["id"])
     ]
     _categories = [
         *combined_arch_str_outline["layer"],

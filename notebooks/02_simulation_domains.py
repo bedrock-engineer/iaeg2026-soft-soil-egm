@@ -84,7 +84,7 @@ def _(Lens):
 def inputs(Path, mo):
     DATA_DIR = Path(mo.notebook_dir()).parent / "data"
     # The inputs 01_get_data.py writes: the cells that read them run again when it replaces them
-    geotop_parquet = mo.watch.file(DATA_DIR / "geotop_bdf.parquet")
+    geotop_parquet = mo.watch.file(DATA_DIR / "geotop_bimdf.parquet")
     cpts_parquet = mo.watch.file(DATA_DIR / "cpts.parquet")
     return cpts_parquet, geotop_parquet
 
@@ -95,13 +95,13 @@ def read_inputs(Path, bpl, cpts_parquet, geotop_parquet, mo, pl):
         not (Path(geotop_parquet).exists() and Path(cpts_parquet).exists()),
         mo.md("Run `01_get_data.py` and download the data first."),
     )
-    geotop_bdf = bpl.read_parquet(Path(geotop_parquet))
+    geotop_bimdf = bpl.read_parquet(Path(geotop_parquet))
     cpts = pl.read_parquet(Path(cpts_parquet))
     # The voxels' GeoTOP values as columns: x and y are the south-west corner of the 100 m column, z the
     # centre of the 0.5 m voxel, in RD New + NAP
-    voxels = geotop_bdf.select("id", pl.col("properties").struct.field("GeoTOP").struct.unnest())
+    voxels = geotop_bimdf.select("id", pl.col("properties").struct.field("GeoTOP").struct.unnest())
     mo.md(f"**{voxels.height} GeoTOP voxels** in {voxels.select('x', 'y').n_unique()} columns, **{cpts['bro_id'].n_unique()} CPTs**.")
-    return cpts, geotop_bdf, voxels
+    return cpts, geotop_bimdf, voxels
 
 
 @app.cell(hide_code=True)
@@ -368,14 +368,14 @@ def viewer_intro(mo):
 
 
 @app.cell
-def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bdf, pl, voxel_domains):
+def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bimdf, pl, voxel_domains):
     def _rgba(hex_color):
         return [int(hex_color[_i : _i + 2], 16) / 255 for _i in (1, 3, 5)] + [1.0]
 
 
     # The simulated voxels, each box in its domain's colour, with its domain as its class
     _voxels = (
-        geotop_bdf.with_columns(voxel_domains["domain"])
+        geotop_bimdf.with_columns(voxel_domains["domain"])
         .filter(pl.col("domain").is_not_null())
         .with_columns(
             pl.col("domain").cast(pl.Categorical).alias("class"),
@@ -399,7 +399,7 @@ def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bdf, pl, voxel_domains):
     # voxels' site CRS
     _half = 1.0
     # The same box triangles as the voxels'
-    _box_faces = geotop_bdf["mesh"][0]["faces"]
+    _box_faces = geotop_bimdf["mesh"][0]["faces"]
     _cpt_rows = cpts.group_by("bro_id").agg(pl.first("x", "y"), pl.max("z").alias("top"), pl.min("z").alias("base"))
     _x0, _x1 = pl.col("x") - _half, pl.col("x") + _half
     _y0, _y1 = pl.col("y") - _half, pl.col("y") + _half
@@ -424,25 +424,25 @@ def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bdf, pl, voxel_domains):
             ),
             crs="EPSG:7415",
         ),
-        geotop_bdf.crs,
+        geotop_bimdf.crs,
     )
-    domain_bdf = bpl.concat([_voxels, _cpt_sticks], how="diagonal_relaxed")
-    return (domain_bdf,)
+    domain_bimdf = bpl.concat([_voxels, _cpt_sticks], how="diagonal_relaxed")
+    return (domain_bimdf,)
 
 
 @app.cell(hide_code=True)
-def domain_viewer(GeoSpeckleViewer, domain_bdf, mo, pdok_3d_buildings):
+def domain_viewer(GeoSpeckleViewer, domain_bimdf, mo, pdok_3d_buildings):
     domain_viewer = mo.ui.anywidget(
-        GeoSpeckleViewer(domain_bdf, tilesets=[pdok_3d_buildings(domain_bdf)], height=550)
+        GeoSpeckleViewer(domain_bimdf, tilesets=[pdok_3d_buildings(domain_bimdf)], height=550)
     )
     domain_viewer
     return (domain_viewer,)
 
 
 @app.cell(hide_code=True)
-def viewer_selection(domain_bdf, domain_viewer, pl):
+def viewer_selection(domain_bimdf, domain_viewer, pl):
     # The voxels and CPTs selected in the GeoSpeckleViewer
-    domain_bdf.filter(
+    domain_bimdf.filter(
         pl.col("id").is_in([_obj["applicationId"] for _obj in domain_viewer.value["selected"]])
     ).select("id", "class", "name", "domain")
     return

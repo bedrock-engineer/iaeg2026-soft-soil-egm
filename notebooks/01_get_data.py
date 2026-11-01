@@ -403,7 +403,7 @@ def _(mo):
 
     The downloaded voxels in a bimpolars BimDataFrame, one row per voxel: a box mesh in GeoTOP's
     lithology colour, the stratigraphic unit as `class`, and the voxel's GeoTOP values in the property
-    set `GeoTOP`. It is written to `data/geotop_bdf.parquet` for the next notebooks, and rebuilt
+    set `GeoTOP`. It is written to `data/geotop_bimdf.parquet` for the next notebooks, and rebuilt
     whenever a download replaces `data/geotop.nc`.
     """)
     return
@@ -563,10 +563,10 @@ def geotop_bimdf(DATA_DIR, bpl, geotop_rd):
         0.0,
     )
     site_crs = bpl.georeferenced_bim_crs("EPSG:7415", *site_origin, 0.0, unit=geotop_rd, name="GeoTOP")
-    geotop_bdf = bpl.to_crs(geotop_rd, site_crs)
-    geotop_bdf.write_parquet(DATA_DIR / "geotop_bdf.parquet")
-    geotop_bdf
-    return (geotop_bdf,)
+    geotop_bimdf = bpl.to_crs(geotop_rd, site_crs)
+    geotop_bimdf.write_parquet(DATA_DIR / "geotop_bimdf.parquet")
+    geotop_bimdf
+    return (geotop_bimdf,)
 
 
 @app.cell(hide_code=True)
@@ -592,13 +592,13 @@ def viewer_color(mo):
 
 
 @app.cell(hide_code=True)
-def viewer(GeoSpeckleViewer, color_by, geotop_bdf, mo, pdok_3d_buildings):
+def viewer(GeoSpeckleViewer, color_by, geotop_bimdf, mo, pdok_3d_buildings):
     geotop_viewer = mo.ui.anywidget(
         GeoSpeckleViewer(
-            geotop_bdf,
+            geotop_bimdf,
             color=color_by.value,
-            # ground_map=osm_ground_map(geotop_bdf),
-            tilesets=[pdok_3d_buildings(geotop_bdf)],
+            # ground_map=osm_ground_map(geotop_bimdf),
+            tilesets=[pdok_3d_buildings(geotop_bimdf)],
             height=550,
         )
     )
@@ -607,9 +607,9 @@ def viewer(GeoSpeckleViewer, color_by, geotop_bdf, mo, pdok_3d_buildings):
 
 
 @app.cell
-def viewer_selection(geotop_bdf, geotop_viewer, pl):
+def viewer_selection(geotop_bimdf, geotop_viewer, pl):
     # The voxels selected in the GeoSpeckleViewer
-    selected_voxels = geotop_bdf.filter(
+    selected_voxels = geotop_bimdf.filter(
         pl.col("id").is_in([_obj["applicationId"] for _obj in geotop_viewer.value["selected"]])
     )
     selected_voxels.select("id", "name", "class", pl.col("properties").struct.field("GeoTOP").struct.unnest())
