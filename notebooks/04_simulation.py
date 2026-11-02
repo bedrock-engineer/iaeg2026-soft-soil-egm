@@ -3,6 +3,7 @@
 # dependencies = [
 #     "altair",
 #     "anywidget==0.11.0",
+#     "bromodels==0.0.1",
 #     "gstools==1.7.0",
 #     "h5netcdf==1.8.2",
 #     "h5py==3.16.0",
@@ -52,6 +53,7 @@ def _():
 
     import altair as alt
     import anywidget
+    import bromodels
     import gstools as gs
     import marimo as mo
     import numpy as np
@@ -70,6 +72,7 @@ def _():
         Path,
         alt,
         anywidget,
+        bromodels,
         cdist,
         datetime,
         gs,
@@ -189,6 +192,20 @@ def read_inputs(
         saved_variograms,
         voxels,
     )
+
+
+@app.cell(hide_code=True)
+def legends(bromodels, pl):
+    # GeoTOP's colors per stratigraphic unit and lithology class, as in 02
+    STRAT_COLORS = {
+        _row["STR_UNIT_CD"]: f"#{int(_row['RED_DEC']):02x}{int(_row['GREEN_DEC']):02x}{int(_row['BLUE_DEC']):02x}"
+        for _row in pl.from_pandas(bromodels.GeoTop.geotop_stratigraphic_unit()).drop_nulls("STR_UNIT_CD").iter_rows(named=True)
+    }
+    LITH_COLORS = {
+        _row["DESCRIPTION"]: f"#{int(_row['RED_DEC']):02x}{int(_row['GREEN_DEC']):02x}{int(_row['BLUE_DEC']):02x}"
+        for _row in pl.from_pandas(bromodels.GeoTop.geotop_lithology_class()).iter_rows(named=True)
+    }
+    return LITH_COLORS, STRAT_COLORS
 
 
 @app.cell(hide_code=True)
@@ -631,10 +648,11 @@ def view_intro(mo):
 
     The selected run's cells from above at one level, with a west–east section above and a south–north section to the
     right, as in `02`: drag the red dot in the plan to move the sections, and drag in either section to
-    change the plan's level. Color the cells by one realization or a statistic of all realizations per cell
-    (the median, P10, P90 or their spread), or by their simulation domain. In the sections, each GeoTOP
-    column the CPTs cross shows the median qc of its CPTs, in a band from their 10th to their 90th
-    percentile; hover over a CPT in the plan for its own qc, and over a cell for its value.
+    change the plan's level. Color the cells by the median of a parameter's realizations per cell or by
+    their spread, P90 / P10, or by their simulation domain, stratigraphic unit or GeoTOP lithology class.
+    In the sections, each GeoTOP column the CPTs cross
+    shows the median qc of its CPTs, in a band from their 10th to their 90th percentile; hover over a CPT
+    in the plan for its own qc, and over a cell for its value.
     """)
     return
 
@@ -660,8 +678,9 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         # Per cell, a value as float32 bytes, on a color scale {label, log, min, max, scheme}
         values = traitlets.Bytes().tag(sync=True)
         value_scale = traitlets.Dict().tag(sync=True)
-        # What the cells can be colored by, and are: "value" or "domain"
-        color_modes = traitlets.List(["value", "domain"]).tag(sync=True)
+        # What the cells are colored by: "value", "domain" or "unit", set by the Color by dropdown, so the
+        # widget offers no buttons of its own
+        color_modes = traitlets.List([]).tag(sync=True)
         color_by = traitlets.Unicode("value").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
         y = traitlets.Float().tag(sync=True)
@@ -671,30 +690,37 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
 
 
 @app.cell(hide_code=True)
-def view_controls(PARAMETERS, mo, run, simulated):
-    # What the cross-sections show of the selected run
-    _labels = {_name: _label for _label, _name in PARAMETERS.items()}
-    view_controls = mo.ui.dictionary(
-        {
-            "parameter": mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter"),
-            "shown": mo.ui.dropdown(
-                {"Median (P50)": "p50", "P10": "p10", "P90": "p90", "Spread (P90 against P10)": "spread"}
-                | {f"Realization {_r + 1}": f"r{_r}" for _r in range(run["realizations"])},
-                value="Median (P50)",
-                label="Show",
-            ),
-        }
+def view_controls(mo, simulated):
+    # What the cross-sections are colored by: the median or the spread of a parameter's realizations per
+    # cell, of each parameter in the selected run, or the cells' simulation domain, stratigraphic unit or
+    # GeoTOP lithology class
+    _short = {"qc": "qc", "fs": "fs", "rf": "Rf"}
+    color_by = mo.ui.radio(
+        {f"{_short[_name]} {_statistic}": f"{_name} {_statistic}" for _name in simulated for _statistic in ("median", "spread")}
+        | {"Simulation domain": "domain", "Stratigraphic unit": "unit", "GeoTOP lithology": "lithology"},
+        value=f"{_short[next(iter(simulated))]} median",
+        label="Color by",
+        inline=True,
     )
-    mo.hstack([view_controls["parameter"], view_controls["shown"]], justify="start", gap=2)
-    return (view_controls,)
+    color_by
+    return (color_by,)
 
 
 @app.cell(hide_code=True, expand_output=True)
-def cross_sections(CrossSections, DOMAIN_COLORS, pl, run, run_cells, samples):
-    # Made once per selected run; section_values colors it. The stratigraphic units from the top down and the
-    # lithology classes alphabetically, for the cell under the pointer; their colors are not shown.
+def cross_sections(
+    CrossSections,
+    DOMAIN_COLORS,
+    LITH_COLORS,
+    STRAT_COLORS,
+    pl,
+    run,
+    run_cells,
+    samples,
+):
+    # Made once per selected run; section_values colors it. The stratigraphic units from the top down in
+    # GeoTOP's colors, and the lithology classes from the most cells to the fewest, in GeoTOP's colors.
     _units = run_cells.group_by("stratigraphic_unit").agg(pl.max("z")).sort("z", descending=True)["stratigraphic_unit"].to_list()
-    _lithologies = run_cells["grondsoort"].unique().sort().to_list()
+    _lithologies = run_cells.group_by("grondsoort").len().sort("len", "grondsoort", descending=True)["grondsoort"].to_list()
     _cpts = samples.sort("z", descending=True).group_by("bro_id", maintain_order=True).agg(pl.first("x", "y"), "z", "qc")
     _size = {"x": run["resolution"]["horizontal"], "y": run["resolution"]["horizontal"], "z": run["resolution"]["vertical"]}
     _corners = run_cells.select(
@@ -721,8 +747,8 @@ def cross_sections(CrossSections, DOMAIN_COLORS, pl, run, run_cells, samples):
     section_view = CrossSections(
         voxels=_corners.drop("domain").rows(),
         cell=_size,
-        units=[{"code": _u, "name": _u, "color": "#cccccc"} for _u in _units],
-        lithologies=[{"name": _l, "color": "#cccccc"} for _l in _lithologies],
+        units=[{"code": _u, "name": _u, "color": STRAT_COLORS.get(_u, "#cccccc")} for _u in _units],
+        lithologies=[{"name": _l, "color": LITH_COLORS.get(_l, "#cccccc")} for _l in _lithologies],
         cpts=_cpts.to_dicts(),
         domains=[{"name": _d, "color": _c} for _d, _c in DOMAIN_COLORS.items()],
         domain_of=_corners["domain"].to_list(),
@@ -735,36 +761,30 @@ def cross_sections(CrossSections, DOMAIN_COLORS, pl, run, run_cells, samples):
 
 
 @app.cell(hide_code=True)
-def section_values(
-    UNITS,
-    np,
-    run_log,
-    section_view,
-    simulated,
-    statistics,
-    view_controls,
-):
-    # The cross-sections colored by what view_controls shows: a realization, a statistic or the spread
-    # (P90 / P10 for log10 parameters, P90 − P10 otherwise), on a color scale over its 2nd to 98th percentile,
-    # logarithmic for log10 parameters and the spread of them
-    _name, _shown = view_controls.value["parameter"], view_controls.value["shown"]
-    _log = run_log[_name]
-    if _shown.startswith("r"):
-        _values, _label = simulated[_name][int(_shown[1:])], f"{_name} realization {int(_shown[1:]) + 1} ({UNITS[_name]})"
-    elif _shown == "spread":
-        _p10, _p90 = statistics[_name]["p10"], statistics[_name]["p90"]
-        _values, _label = (_p90 / _p10, f"{_name} P90 / P10") if _log else (_p90 - _p10, f"{_name} P90 − P10 ({UNITS[_name]})")
+def section_values(UNITS, color_by, np, run_log, section_view, statistics):
+    # The cross-sections colored by what color_by shows: the cells' domain, unit or lithology class, or a
+    # parameter's median or spread (P90 / P10 for log10 parameters, P90 − P10 otherwise) on a color scale over
+    # its 2nd to 98th percentile, logarithmic for log10 parameters
+    if color_by.value in ("domain", "unit", "lithology"):
+        section_view.color_by = color_by.value
     else:
-        _values, _label = statistics[_name][_shown], f"{_name} {_shown.upper()} ({UNITS[_name]})"
-    _low, _high = np.nanpercentile(_values, [2, 98])
-    section_view.values = np.asarray(_values, dtype=np.float32).tobytes()
-    section_view.value_scale = {
-        "label": _label,
-        "log": bool(_log),
-        "min": float(_low),
-        "max": float(_high),
-        "scheme": "oranges" if _shown == "spread" else "viridis",
-    }
+        _name, _statistic = color_by.value.split()
+        _log = run_log[_name]
+        if _statistic == "spread":
+            _p10, _p90 = statistics[_name]["p10"], statistics[_name]["p90"]
+            _values, _label = (_p90 / _p10, f"{_name} P90 / P10") if _log else (_p90 - _p10, f"{_name} P90 − P10 ({UNITS[_name]})")
+        else:
+            _values, _label = statistics[_name]["p50"], f"{_name} median ({UNITS[_name]})"
+        _low, _high = np.nanpercentile(_values, [2, 98])
+        section_view.values = np.asarray(_values, dtype=np.float32).tobytes()
+        section_view.value_scale = {
+            "label": _label,
+            "log": bool(_log),
+            "min": float(_low),
+            "max": float(_high),
+            "scheme": "oranges" if _statistic == "spread" else "viridis",
+        }
+        section_view.color_by = "value"
     return
 
 

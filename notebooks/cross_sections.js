@@ -106,12 +106,14 @@ function render({ model, el }) {
   canvas.style.cssText = "display: block; touch-action: none; background: white;";
   const legend = document.createElement("div");
   legend.style.cssText = `display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 6px 0 0 ${LEFT}px;`;
-  // Buttons to color the voxels by what color_modes offers
+  // Buttons to color the voxels by what color_modes offers; none when it offers one mode or none, for a
+  // notebook that sets color_by itself
   const toolbar = document.createElement("div");
   toolbar.style.cssText = `display: flex; align-items: center; gap: 6px; margin: 0 0 6px ${LEFT}px;`;
   let buttons = [];
   function fillToolbar() {
     const modes = model.get("color_modes") ?? ["domain", "unit", "lithology"];
+    toolbar.style.display = modes.length > 1 ? "flex" : "none";
     buttons = modes.map((mode) => {
       const button = document.createElement("button");
       button.textContent = mode === "value" ? (model.get("value_scale")?.label ?? COLOR_BY.value) : COLOR_BY[mode];
@@ -121,7 +123,7 @@ function render({ model, el }) {
       });
       return [mode, button];
     });
-    toolbar.replaceChildren("Color by", ...buttons.map(([, button]) => button));
+    toolbar.replaceChildren("Color by",...buttons.map(([, button]) => button));
     for (const [mode, button] of buttons) {
       const on = model.get("color_by") === mode;
       button.style.cssText =
@@ -316,7 +318,7 @@ function render({ model, el }) {
     // Where the sections run in the plan, and where they cross each other in the sections
     const cx = X(x0 + dx / 2);
     const cy = Y(y0 + dy / 2);
-    ctx.strokeStyle = BLUE;
+    ctx.strokeStyle = RED;
     ctx.lineWidth = 2;
     line(plan.x, cy, plan.x + plan.w, cy);
     line(cx, plan.y, cx, plan.y + plan.h);
