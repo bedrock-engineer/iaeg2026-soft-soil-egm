@@ -7,6 +7,7 @@
 // it (the selected_cpt trait), which moves the sections through it and keeps showing its qc. The voxels
 // are GeoTOP's or smaller cells of them (the cell trait), colored by their simulation domain,
 // stratigraphic unit, lithology class or a value (the values trait), whichever color_modes offers.
+// The optional footprints trait outlines rings of x and y in the plan, and marks their extent along the sections.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
@@ -66,6 +67,19 @@ function profiles(cpts, axis) {
         return { z, p10: quantile(0.1), p50: quantile(0.5), p90: quantile(0.9) };
       }),
   ]);
+}
+
+/** Where a ring's edges cross the line at value along axis (0: x, 1: y), along the other axis */
+function crossings(ring, axis, value) {
+  const found = [];
+  ring.forEach((point, i) => {
+    const next = ring[(i + 1) % ring.length];
+    if (point[axis] < value !== next[axis] < value) {
+      const t = (value - point[axis]) / (next[axis] - point[axis]);
+      found.push(point[1 - axis] + t * (next[1 - axis] - point[1 - axis]));
+    }
+  });
+  return found;
 }
 
 /** text in lines of at most width px */
@@ -316,6 +330,36 @@ function render({ model, el }) {
     }
     for (let y = geotopColumn(grid.ymin); y <= grid.ymax; y += COLUMN) {
       line(plan.x, Y(y), plan.x + plan.w, Y(y));
+    }
+
+    // The footprints: a dark line with a white edge in the plan, so that it shows on every color, and
+    // in the sections a bar along the ground surface's side, from where they enter the sections' row and
+    // column to where they leave it
+    const footprints = model.get("footprints") ?? [];
+    clipped(plan, () => {
+      for (const ring of footprints) {
+        ctx.beginPath();
+        ring.forEach(([x, y]) => ctx.lineTo(X(x), Y(y)));
+        ctx.closePath();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    });
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 5;
+    for (const ring of footprints) {
+      const alongTop = crossings(ring, 1, y0 + dy / 2);
+      const alongSide = crossings(ring, 0, x0 + dx / 2);
+      if (alongTop.length) {
+        line(X(Math.min(...alongTop)), top.y + 2.5, X(Math.max(...alongTop)), top.y + 2.5);
+      }
+      if (alongSide.length) {
+        line(side.x + side.w - 2.5, Y(Math.max(...alongSide)), side.x + side.w - 2.5, Y(Math.min(...alongSide)));
+      }
     }
 
     // Where the sections run in the plan, and where they cross each other in the sections
