@@ -460,8 +460,14 @@ def view_controls(ZONE_LABELS, mo, zone_numbers, zone_probabilities):
         value=ZONE_LABELS[3 if 3 in _occurring else _occurring[0]],
         label="Zone",
     )
-    mo.vstack([color_by, probability_of])
     return color_by, probability_of
+
+
+@app.cell(hide_code=True)
+def color_controls(color_by, mo, probability_of):
+    # The zone can only be chosen when the cells show its probability
+    mo.vstack([color_by, probability_of] if color_by.value == "probability" else [color_by])
+    return
 
 
 @app.cell(hide_code=True, expand_output=True)
