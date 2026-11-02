@@ -1,0 +1,257 @@
+:root {
+  color-scheme: light;
+  --navy: #1b1464;
+}
+
+html,
+body,
+#app-shell {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+}
+
+#app-shell {
+  min-height: 100%;
+}
+
+.reveal.studio-deck {
+  --r-background-color: #fff;
+  --r-main-color: var(--navy);
+  --r-heading-color: var(--navy);
+  --r-link-color: var(--navy);
+  --r-main-font: Calibri, "Segoe UI", sans-serif;
+  --r-heading-font: Calibri, "Segoe UI", sans-serif;
+  font-size: 40px;
+}
+
+.reveal.studio-deck .slides {
+  text-align: left;
+}
+
+.reveal.studio-deck .slides section {
+  box-sizing: border-box;
+  width: 1920px;
+  height: 1080px;
+  padding: 48px 72px;
+}
+
+.reveal.studio-deck h1 {
+  font-size: 72px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.reveal.studio-deck h2 {
+  margin: 0 0 32px;
+  font-size: 56px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.reveal.studio-deck .cover {
+  padding-top: 240px;
+}
+
+.author {
+  margin-top: 48px;
+  font-size: 44px;
+}
+
+.beside {
+  display: grid;
+  grid-template-columns: 1fr 2.6fr;
+  gap: 48px;
+  align-items: center;
+  min-height: 800px;
+}
+
+.points {
+  margin: 0;
+  padding-left: 1em;
+  font-size: 40px;
+  line-height: 1.25;
+}
+
+.points li + li {
+  margin-top: 24px;
+}
+
+.visual img {
+  width: 100%;
+}
+
+.placeholder {
+  display: grid;
+  min-height: 720px;
+  place-items: center;
+  border: 4px dashed var(--navy);
+  border-radius: 16px;
+  font-size: 40px;
+  text-align: center;
+}
+
+.reveal.studio-deck .slides section.filmed {
+  padding: 0;
+}
+
+.filmed .visual {
+  width: 1920px;
+  height: 1080px;
+}
+
+.filmed .overlay {
+  position: absolute;
+  top: 32px;
+  left: 48px;
+  margin: 0;
+  padding: 8px 24px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.85);
+}
+
+.qr {
+  width: 760px;
+  margin: 24px auto 0;
+}
+
+.qr svg {
+  width: 100%;
+  height: auto;
+}
+
+.points {
+  list-style: disc;
+}
+
+.simulation .beside {
+  grid-template-columns: 1fr 3fr;
+}
+
+.pipeline {
+  width: 100%;
+  color: var(--navy);
+}
+
+.pipeline text {
+  fill: var(--navy);
+  font-size: 34px;
+}
+
+.pipeline .data {
+  fill: color-mix(in srgb, #5ebbe8 22%, white);
+  stroke: var(--navy);
+  stroke-width: 2;
+}
+
+.pipeline .flow {
+  fill: none;
+  stroke: var(--navy);
+  stroke-width: 4;
+}
+
+.pipeline .dashed {
+  stroke-dasharray: 14 10;
+}
+
+.pipeline .process {
+  font-weight: 700;
+}
+
+.pipeline .trigger {
+  font-style: italic;
+}
+
+.anywhere {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 32px;
+  align-items: center;
+}
+
+.source {
+  display: grid;
+  gap: 8px;
+  padding: 32px;
+  border-radius: 16px;
+  background: color-mix(in srgb, #5ebbe8 22%, white);
+  font-size: 34px;
+  text-align: center;
+}
+
+.routes {
+  display: grid;
+  gap: 56px;
+}
+
+.route {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+.route .arrow {
+  font-size: 56px;
+}
+
+.bim {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 24px 28px;
+}
+
+.reveal.studio-deck .logo {
+  display: grid;
+  width: 160px;
+  margin: 0;
+  gap: 8px;
+  justify-items: center;
+  font-size: 34px;
+}
+
+.logo svg {
+  width: 110px;
+  height: 110px;
+}
+
+.reveal.studio-deck .speckle {
+  width: 280px;
+  height: auto;
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 40px;
+}
+
+.tools li {
+  padding: 16px 32px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #5ebbe8 22%, white);
+}
+
+marimo-output[value="section_view"] {
+  zoom: 1.15;
+}
+
+marimo-output[value="realization"] {
+  display: block;
+  margin-top: 24px;
+  zoom: 1.6;
+}
+
+marimo-cell {
+  /* Scale notebook Markdown with the slide. */
+  --marimo-cell-font-size: 1em;
+  display: block;
+  min-width: 0;
+}
