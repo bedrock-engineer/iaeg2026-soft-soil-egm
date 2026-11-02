@@ -921,5 +921,217 @@ def geotop_comparison(ZONE_LABELS, alt, cells, most_likely, pl):
     return
 
 
+@app.cell(hide_code=True)
+def detail_intro(mo):
+    mo.md(r"""
+    ## 4 · The vertical detail away from the CPTs
+
+    Finer cells can show thinner layers, but are those layers there? This compares the classified runs with the selected
+    run's horizontal resolution, per domain and by the distance from a cell to the nearest CPT that reaches its level.
+    A layer is a run of cells along z in a column with the same zone. The charts count them per 10 m of column, for the
+    most likely zone and for one realization, against the layers of the CPT samples themselves, of that height. They also
+    show how likely a layer's zone is, for layers thinner than a GeoTOP voxel and for thicker ones.
+
+    Layers per 10 m that stay level or rise with the distance do not mean that the detail holds away from the CPTs. Where
+    the data says little, two zones can be about equally likely, and the most likely zone then flips from cell to cell with
+    only a few realizations to count. A real layer should be more likely than such a flip, so look at the probabilities
+    too. A single realization has layers everywhere, but those are one possible outcome and lie elsewhere in the next.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def vertical_detail(
+    CLASSIFICATIONS_DIR,
+    COLUMN,
+    DATA_DIR,
+    GAMMA_MISSING,
+    SIMULATIONS_DIR,
+    VOXEL,
+    classified_samples,
+    ground_levels,
+    np,
+    pl,
+    robertson,
+    saved_runs,
+    xr,
+):
+    # The classified runs with the selected run's horizontal resolution
+    _DISTANCE_EDGES = [10, 25, 50, 100, 200]
+    DISTANCE_LABELS = ["0–10 m", "10–25 m", "25–50 m", "50–100 m", "100–200 m", "> 200 m"]
+    _runs = saved_runs.data.filter(pl.col("horizontal (m)") == saved_runs.value["horizontal (m)"][0]).sort("vertical (m)", descending=True)
+    _by_column = {(_x, _y): _level for _x, _y, _level in ground_levels.iter_rows()}
+
+
+    def _distance_labels(distances):
+        return np.array(DISTANCE_LABELS)[np.digitize(distances, _DISTANCE_EDGES)]
+
+
+    def _layers(zones, domains, distances, probabilities, height):
+        """The runs along z in a column of the same zone and domain, with their domain, thickness, the distance at their
+        middle and the mean probability of their zone"""
+        _key = zones.astype(np.int32) * 100 + domains
+        _layer = np.cumsum(np.concatenate([np.ones((1, *zones.shape[1:]), bool), _key[1:] != _key[:-1]]), axis=0)
+        _iz, _iy, _ix = np.nonzero(domains >= 0)
+        _frame = (
+            pl.DataFrame(
+                {
+                    "column": _iy.astype(np.int64) * zones.shape[2] + _ix,
+                    "layer": _layer[_iz, _iy, _ix].astype(np.int64),
+                    "domain": domains[_iz, _iy, _ix].astype(np.int64),
+                    "distance": distances[_iz, _iy, _ix],
+                    "probability": probabilities[_iz, _iy, _ix].astype(np.float64) if probabilities is not None else np.full(len(_iz), np.nan),
+                }
+            )
+            .group_by("column", "layer", "domain")
+            .agg(cells=pl.len(), distance=pl.col("distance").median(), probability=pl.col("probability").mean())
+            .with_columns(thickness=pl.col("cells") * height)
+        )
+        return _frame.with_columns(pl.Series("distance_label", _distance_labels(_frame["distance"].to_numpy())))
+
+
+    _frames, _cpts = [], []
+    for _stem, _height in zip((_file.removesuffix(".nc") for _file in _runs["file"]), _runs["vertical (m)"]):
+        _found = sorted(CLASSIFICATIONS_DIR.glob(f"{_stem}_*.nc"))
+        if not _found:
+            continue
+        _label = f"{_height * 100:g} cm"
+        with (
+            xr.open_dataset(_found[-1], engine="h5netcdf") as _classification,
+            xr.open_dataset(SIMULATIONS_DIR / f"{_stem}.nc", engine="h5netcdf") as _run,
+        ):
+            _x, _y, _z = (_classification[_axis].values for _axis in ("x", "y", "z"))
+            _domains = _classification["domain"].fillna(-1).values.astype(np.int8)
+            _names = _classification["domain"].attrs["flag_meanings"].split()
+            _most_likely = _classification["most_likely_zone"].values.astype(np.int8)
+            # The most likely zone's probability; 0, outside the domains, picks the first zone and is left out later
+            _probability = np.take_along_axis(
+                _classification["zone_probability"].values, np.clip(_most_likely.astype(np.int64) - 1, 0, None)[None], axis=0
+            )[0]
+            # The first realization, classified as in the saved classification
+            _ground = np.array([[_by_column.get((_cx // COLUMN * COLUMN, _cy // COLUMN * COLUMN), 0.0) for _cx in _x] for _cy in _y])
+            _top_down = lambda _values: np.moveaxis(_values, 0, -1)[..., ::-1]
+            _realization = robertson(
+                _top_down(_run["qc"].isel(realization=0).values),
+                _top_down(_run["fs"].isel(realization=0).values),
+                _z[::-1],
+                _ground,
+                gamma_missing=GAMMA_MISSING,
+            )["zone"]
+        _realization = np.moveaxis(_realization[..., ::-1], -1, 0).astype(np.int8)
+        # The CPT samples of this height: where each CPT lies and how far it reaches
+        _samples = pl.read_parquet(DATA_DIR / f"simulation_samples_{_height * 100:g}cm.parquet")
+        _reach = _samples.group_by("bro_id").agg(pl.first("x"), pl.first("y"), top=pl.col("z").max(), bottom=pl.col("z").min())
+        _cx, _cy, _top, _bottom = (_reach[_name].to_numpy() for _name in ("x", "y", "top", "bottom"))
+        _plan_x, _plan_y = np.meshgrid(_x, _y)
+        _plan = np.hypot(_plan_x[..., None] - _cx, _plan_y[..., None] - _cy)
+        _distances = np.full(_most_likely.shape, np.inf)
+        for _k, _level in enumerate(_z):
+            _reaching = (_bottom - 1e-6 <= _level) & (_level <= _top + 1e-6)
+            if _reaching.any():
+                _distances[_k] = _plan[..., _reaching].min(axis=-1)
+        _domain_names = pl.col("domain").replace_strict(dict(enumerate(_names)), return_dtype=pl.String)
+        _frames += [
+            _layers(_zones, _domains, _distances, _probabilities, _height).with_columns(
+                domain=_domain_names, source=pl.lit(_source), height=pl.lit(_label)
+            )
+            for _source, _zones, _probabilities in (("Most likely zone", _most_likely, _probability), ("One realization", _realization, None))
+        ]
+        # The layers of the CPT samples: consecutive samples of a CPT in the same zone and domain
+        _measured = classified_samples(_samples, _height).sort(["bro_id", "z"], descending=[False, True])
+        _cpts.append(
+            _measured.with_columns(
+                layer=(
+                    (pl.col("zone") != pl.col("zone").shift(1))
+                    | (pl.col("domain") != pl.col("domain").shift(1))
+                    | ((pl.col("z").shift(1) - pl.col("z")).round(3) > _height)
+                )
+                .fill_null(True)
+                .cum_sum()
+                .over("bro_id")
+            )
+            .group_by("bro_id", "layer", "domain")
+            .agg(thickness=pl.len() * _height)
+            .group_by("domain")
+            .agg(layers=pl.len(), layers_per_10_m=pl.len() / pl.col("thickness").sum() * 10)
+            .with_columns(source=pl.lit("CPT samples"), height=pl.lit(_label))
+        )
+    detail_layers = pl.concat(_frames)
+    detail_cpts = pl.concat(_cpts)
+    # At least this many layers per point, so that a chart does not follow a handful of them
+    _ENOUGH = 30
+    detail_table = (
+        detail_layers.group_by("height", "source", "domain", "distance_label")
+        .agg(
+            layers=pl.len(),
+            layers_per_10_m=pl.len() / pl.col("thickness").sum() * 10,
+            thin_share=pl.col("thickness").filter(pl.col("thickness") < VOXEL).sum() / pl.col("thickness").sum(),
+            probability=(pl.col("probability") * pl.col("thickness")).sum() / pl.col("thickness").sum(),
+        )
+        .filter(pl.col("layers") >= _ENOUGH)
+        .with_columns(pl.col("distance_label").cast(pl.Enum(DISTANCE_LABELS)))
+        .sort("height", "source", "domain", "distance_label")
+    )
+    return DISTANCE_LABELS, detail_cpts, detail_layers, detail_table
+
+
+@app.cell(hide_code=True, expand_output=True)
+def vertical_detail_charts(
+    DISTANCE_LABELS,
+    DOMAIN_COLORS,
+    VOXEL,
+    alt,
+    detail_cpts,
+    detail_layers,
+    detail_table,
+    mo,
+    pl,
+):
+    # The CPT samples have no distance: a level line over all distances of their domain and height
+    _cpt_lines = detail_cpts.join(pl.DataFrame({"distance_label": pl.Series(DISTANCE_LABELS, dtype=pl.Enum(DISTANCE_LABELS))}), how="cross").select(
+        "height", "source", "domain", "distance_label", "layers_per_10_m"
+    )
+    _lines = pl.concat([detail_table.select(_cpt_lines.columns), _cpt_lines])
+    _x = alt.X("distance_label:N", title="Distance to the nearest CPT", sort=DISTANCE_LABELS, axis=alt.Axis(labelAngle=-40))
+    _domains = alt.Facet("domain:N", title=None, sort=list(DOMAIN_COLORS))
+    _count = (
+        alt.Chart(_lines.to_pandas())
+        .mark_line(point=True)
+        .encode(
+            x=_x,
+            y=alt.Y("layers_per_10_m:Q", title="Layers per 10 m"),
+            color=alt.Color("source:N", title=None),
+            strokeDash=alt.StrokeDash("height:N", title="Height of the cells"),
+            tooltip=["height", "source", "domain", "distance_label", alt.Tooltip("layers_per_10_m:Q", format=".1f")],
+        )
+        .properties(width=210, height=150)
+        .facet(_domains, columns=3)
+        .resolve_scale(y="independent")
+    )
+    # How likely the most likely zone is, in thin layers and in thicker ones
+    _likely = (
+        detail_layers.filter(pl.col("source") == "Most likely zone")
+        .with_columns(layer=pl.when(pl.col("thickness") < VOXEL).then(pl.lit(f"Thinner than {VOXEL * 100:g} cm")).otherwise(pl.lit(f"{VOXEL * 100:g} cm or thicker")))
+        .group_by("height", "domain", "distance_label", "layer")
+        .agg(layers=pl.len(), probability=(pl.col("probability") * pl.col("thickness")).sum() / pl.col("thickness").sum())
+        .filter(pl.col("layers") >= 30)
+    )
+    _probability = (
+        alt.Chart(_likely.to_pandas())
+        .mark_line(point=True)
+        .encode(
+            x=_x,
+            y=alt.Y("probability:Q", title="Mean probability of the zone", scale=alt.Scale(domain=[0, 1])),
+            color=alt.Color("layer:N", title=None),
+            strokeDash=alt.StrokeDash("height:N", title="Height of the cells"),
+            tooltip=["height", "layer", "domain", "distance_label", "layers", alt.Tooltip("probability:Q", format=".2f")],
+        )
+        .properties(width=210, height=150)
+        .facet(_domains, columns=3)
+    )
+    mo.vstack([_count, _probability, mo.ui.table(detail_table, selection=None, page_size=12)])
+    return
+
+
 if __name__ == "__main__":
     app.run()
