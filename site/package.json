@@ -6,20 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "node scripts/check-soil.ts"
   },
   "dependencies": {
     "@anywidget/types": "^0.4.0",
     "@speckle/objectloader2": "^2.31.14",
     "@speckle/viewer": "^2.31.14",
     "3d-tiles-renderer": "^0.3.46",
+    "fzstd": "^0.1.1",
     "hyparquet": "^1.32.0",
     "hyparquet-compressors": "^1.1.2",
     "maplibre-gl": "^6.15.0",
     "pmtiles": "^4.5.0",
     "polygon-clipping": "^0.15.7",
     "proj4": "^2.22.0",
-    "three": "0.140.2"
+    "three": "0.140.2",
+    "vega": "^6.4.0",
+    "vega-embed": "^7.3.0",
+    "vega-lite": "^6.5.0",
+    "zarrita": "^0.7.5"
   },
   "devDependencies": {
     "@types/geojson": "^7946.0.16",

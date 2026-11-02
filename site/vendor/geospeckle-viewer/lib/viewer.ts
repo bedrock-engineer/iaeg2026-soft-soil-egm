@@ -15,6 +15,12 @@ import { elementOf, selectionData, singlePlacements } from "./selection";
 import type { NodeLike } from "./selection";
 import type { SpeckleObject, SpeckleViewerModel } from "./types";
 
+/**
+ * The Speckle viewer of each element a widget renders in, for a page that works on the viewer itself
+ * (iaeg2026-soft-soil-egm: hiding elements with its FilteringExtension, which keeps the camera)
+ */
+export const viewers = new WeakMap<HTMLElement, Viewer>();
+
 /** A SpeckleViewer in its element, for a widget that adds to it */
 export interface MountedViewer {
   viewer: Viewer;
@@ -59,6 +65,7 @@ export async function mountSpeckleViewer<T extends SpeckleViewerModel>(
 
   const viewer = new Viewer(container, { ...DefaultViewerParams, verbose: false });
   await viewer.init();
+  viewers.set(el, viewer);
   const camera = viewer.createExtension(CameraController);
   const selection = viewer.createExtension(SelectionExtension);
 

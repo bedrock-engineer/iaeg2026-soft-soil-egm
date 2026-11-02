@@ -1,7 +1,9 @@
 import type { RenderProps } from "@anywidget/types";
+import type { Viewer } from "@speckle/viewer";
 import geospeckleViewer from "./geospeckle-viewer";
 import type { GeoSpeckleViewerModel } from "./lib/types";
 import { StaticModel } from "./static-model";
+import { viewers } from "./lib/viewer";
 
 export { StaticModel } from "./static-model";
 export type {
@@ -29,6 +31,8 @@ export interface MountedGeoSpeckleViewer {
   model: StaticModel<GeoSpeckleViewerModel>;
   /** Resolves once the objects are in view */
   loaded: Promise<void>;
+  /** Speckle's viewer, once the objects are in view: for its extensions */
+  viewer: Promise<Viewer>;
   /** Stops loading and frees the viewer */
   dispose(): Promise<void>;
 }
@@ -64,6 +68,7 @@ export function mountGeoSpeckleViewer(
   return {
     model,
     loaded: rendered.then(() => undefined),
+    viewer: rendered.then(() => viewers.get(el)!),
     async dispose() {
       (await rendered)();
     },
