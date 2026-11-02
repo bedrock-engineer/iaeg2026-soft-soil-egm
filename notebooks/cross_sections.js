@@ -8,6 +8,7 @@
 // are GeoTOP's or smaller cells of them (the cell trait), colored by their simulation domain,
 // stratigraphic unit, lithology class or a value (the values trait), whichever color_modes offers.
 // The optional footprints trait outlines rings of x and y in the plan, and marks their extent along the sections.
+// Narrower than COMPACT px, as on a phone, the sections are thinner and what the corner says goes under the canvas.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
@@ -16,6 +17,7 @@ const BOTTOM = 40;
 const TOP = 8;
 const RIGHT = 8;
 const MAX_PLAN = 560;
+const COMPACT = 560; // px of width, under which the layout is compact
 const COLUMN = 100; // m, GeoTOP's columns
 const VOXEL = 0.5; // m, GeoTOP's voxel height
 const QC_METERS = 2.5; // m along a section per MPa of qc: a GeoTOP column is 40 MPa wide
@@ -147,7 +149,14 @@ function render({ model, el }) {
         `border: 1px solid ${on ? BLUE : "#bbb"}; background: ${on ? BLUE : "white"}; color: ${on ? "white" : "#333"};`;
     }
   }
-  root.append(toolbar, canvas, legend);
+  // The corner's text, in two columns under the canvas when compact: where the plan and sections are, and
+  // what is under the pointer
+  const status = document.createElement("div");
+  status.style.cssText =
+    "display: none; grid-template-columns: 1fr 1fr; gap: 0 8px; height: 112px; overflow: hidden; margin-top: 4px; font: 11px/14px sans-serif;";
+  const [where, under] = [document.createElement("div"), document.createElement("div")];
+  status.append(where, under);
+  root.append(toolbar, canvas, status, legend);
   el.appendChild(root);
   const ctx = canvas.getContext("2d");
 
@@ -189,18 +198,24 @@ function render({ model, el }) {
       : null;
   }
 
-  // The panels in px: the plan at one scale for x and y, the sections SECTION px deep
+  // The panels in px: the plan at one scale for x and y, the sections SECTION px deep, or thinner when compact
   function place() {
-    const width = Math.max(root.clientWidth, 400);
+    const compact = root.clientWidth > 0 && root.clientWidth < COMPACT;
+    const width = compact ? root.clientWidth : Math.max(root.clientWidth, 400);
+    const depth = compact ? Math.max(80, Math.round(width * 0.28)) : SECTION;
     const { xmin, xmax, ymin, ymax } = grid;
-    const s = Math.min((width - LEFT - GAP - SECTION - RIGHT) / (xmax - xmin), MAX_PLAN / (ymax - ymin));
+    const s = Math.min((width - LEFT - GAP - depth - RIGHT) / (xmax - xmin), MAX_PLAN / (ymax - ymin));
     const w = (xmax - xmin) * s;
     const h = (ymax - ymin) * s;
-    const top = { x: LEFT, y: TOP, w, h: SECTION };
-    const plan = { x: LEFT, y: TOP + SECTION + GAP, w, h };
-    const side = { x: LEFT + w + GAP, y: plan.y, w: SECTION, h };
-    const corner = { x: side.x, y: TOP, w: SECTION, h: SECTION };
-    layout = { s, top, plan, side, corner, width: side.x + SECTION + RIGHT, height: plan.y + h + BOTTOM };
+    const top = { x: LEFT, y: TOP, w, h: depth };
+    const plan = { x: LEFT, y: TOP + depth + GAP, w, h };
+    const side = { x: LEFT + w + GAP, y: plan.y, w: depth, h };
+    const corner = { x: side.x, y: TOP, w: depth, h: depth };
+    layout = { s, top, plan, side, corner, compact, width: side.x + depth + RIGHT, height: plan.y + h + BOTTOM };
+    status.style.display = compact ? "grid" : "none";
+    for (const element of [toolbar, legend]) {
+      element.style.marginLeft = `${compact ? 0 : LEFT}px`;
+    }
     const ratio = window.devicePixelRatio || 1;
     canvas.width = layout.width * ratio;
     canvas.height = layout.height * ratio;
@@ -502,11 +517,25 @@ function render({ model, el }) {
         "",
         domains[domainOf[hover]]?.name ?? "not simulated",
         ...(values ? [`${model.get("value_scale")?.label ?? "value"}: ${values[hover].toPrecision(3)}`] : []),
-        ...wrap(ctx, model.get("units")[unit]?.name ?? "", corner.w - 12),
+        ...(layout.compact ? [model.get("units")[unit]?.name ?? ""] : wrap(ctx, model.get("units")[unit]?.name ?? "", corner.w - 12)),
         model.get("lithologies")[lithology]?.name ?? "",
         `x ${x}–${x + dx}, y ${y}–${y + dy}`,
         `z ${z.toFixed(dz < VOXEL ? 2 : 1)} m NAP`,
       );
+    }
+    if (layout.compact) {
+      // Up to the first blank line where the plan and sections are, after it what is under the pointer
+      const split = lines.includes("") ? lines.indexOf("") : lines.length;
+      const column = (from, to) =>
+        lines.slice(from, to).map((text, k) => {
+          const item = document.createElement("div");
+          item.textContent = text || "\u00a0";
+          item.style.fontWeight = from + k === bold ? "bold" : "";
+          return item;
+        });
+      where.replaceChildren(...column(0, split));
+      under.replaceChildren(...column(split + 1, lines.length));
+      return;
     }
     lines.forEach((text, k) => {
       ctx.font = k === bold ? "bold 11px sans-serif" : "11px sans-serif";
