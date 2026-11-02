@@ -26,15 +26,15 @@ def _(mo):
     mo.md(r"""
     # CPT classification
 
-    The lithology of the simulated cells: each realization of a run from `04_simulation.py` classified with
+    The soil behavior type of the simulated cells: each realization of a run from `04_simulation.py` classified with
     Robertson's normalized soil behavior type (SBTn), with the `robertson` function that
     `cpt_robertson_classification.py` checks against GeoLibPlus and CEMS CPT Core. Each realization's qc and fs
     are classified together, not their medians: the Ic of a median qc and a median fs is not the median Ic,
     and the realizations are what keeps qc and fs related (fs is co-simulated with qc). The share of the
     realizations in each zone is that zone's probability in the cell.
 
-    The lithology here is what a CPT can tell: how the soil behaves under the cone, not what it is made of. A
-    cell holds one qc and one fs per realization, so layers thinner than a cell do not show.
+    A soil behavior type is what a CPT can tell: how the soil behaves under the cone, not what it is made of,
+    which is what GeoTOP's lithology classes describe. A cell holds one qc and one fs per realization, so layers thinner than a cell do not show.
     """)
     return
 
@@ -96,7 +96,6 @@ def inputs(Path, mo):
     domains_json = mo.watch.file(Path(mo.notebook_dir()) / "simulation_domains.json")
     variograms_json = mo.watch.file(Path(mo.notebook_dir()) / "variograms.json")
     voxels_parquet = mo.watch.file(DATA_DIR / "voxel_domains.parquet")
-    samples_parquet = mo.watch.file(DATA_DIR / "sample_domains.parquet")
     # m, GeoTOP's columns and the height of its voxels; kN/m³, the unit weight of what lies above the
     # simulation domains and of what lacks a value
     COLUMN = 100.0
@@ -105,11 +104,11 @@ def inputs(Path, mo):
     return (
         CLASSIFICATIONS_DIR,
         COLUMN,
+        DATA_DIR,
         GAMMA_MISSING,
         SIMULATIONS_DIR,
         VOXEL,
         domains_json,
-        samples_parquet,
         variograms_json,
         voxels_parquet,
     )
@@ -124,20 +123,18 @@ def read_inputs(
     json,
     mo,
     pl,
-    samples_parquet,
     variograms_json,
     voxels_parquet,
 ):
     mo.stop(
-        not all(Path(_f).exists() for _f in (domains_json, variograms_json, voxels_parquet, samples_parquet)),
+        not all(Path(_f).exists() for _f in (domains_json, variograms_json, voxels_parquet)),
         mo.md("Save the simulation domains in `02_simulation_domains.py` and the variograms in `03_variograms.py` first."),
     )
     domain_definition = json.loads(Path(domains_json).read_text(encoding="utf-8"))
     saved_variograms = json.loads(Path(variograms_json).read_text(encoding="utf-8"))
     DOMAIN_COLORS = domain_definition["colors"]
-    # All GeoTOP voxels and the CPT samples of 0.5 m in the simulation domains
+    # All GeoTOP voxels
     voxels = pl.read_parquet(Path(voxels_parquet))
-    samples = pl.read_parquet(Path(samples_parquet))
     # The ground per GeoTOP column: the top of its highest voxel
     ground_levels = voxels.group_by("x", "y").agg((pl.col("z").max() + VOXEL / 2).alias("ground_level"))
     ZONE_LABELS = {_zone: f"{_zone} {_name}" for _zone, _name in SOIL_BEHAVIOR_TYPES.items()}
@@ -146,7 +143,6 @@ def read_inputs(
         ZONE_LABELS,
         domain_definition,
         ground_levels,
-        samples,
         saved_variograms,
         voxels,
     )
@@ -187,8 +183,9 @@ def saved_runs(
 
 
     def _current(definition):
+        _at_height = saved_variograms.get(f"{definition['resolution']['vertical']:g}", {})
         return definition["simulation_domains"] == _domains_now and all(
-            _variograms == {_k: _v for _k, _v in saved_variograms.get(_name, {}).items() if _k not in ("saved", "simulation_domains_saved")}
+            _variograms == {_k: _v for _k, _v in _at_height.get(_name, {}).items() if _k not in ("saved", "simulation_domains_saved")}
             for _name, _variograms in definition["variograms"].items()
         )
 
@@ -336,7 +333,16 @@ def classify(
 
 
 @app.cell(hide_code=True)
-def classified(classification_path, np, pl, saved_runs, voxels, xr):
+def classified(
+    DATA_DIR,
+    classification_path,
+    mo,
+    np,
+    pl,
+    saved_runs,
+    voxels,
+    xr,
+):
     # The selected run's classification at its cells (where the grid has a domain): the probabilities as
     # zones × cells, the most likely zone and its probability, and Ic's percentiles
     with xr.open_dataset(classification_path, engine="h5netcdf") as _dataset:
@@ -354,6 +360,11 @@ def classified(classification_path, np, pl, saved_runs, voxels, xr):
         "y": saved_runs.value["horizontal (m)"][0],
         "z": saved_runs.value["vertical (m)"][0],
     }
+    # The CPT samples that 03 saved at the run's vertical resolution
+    SAMPLE_HEIGHT = cell_size["z"]
+    _samples_path = DATA_DIR / f"simulation_samples_{SAMPLE_HEIGHT * 100:g}cm.parquet"
+    mo.stop(not _samples_path.exists(), mo.md("Save the variograms of this run's vertical resolution in `03_variograms.py` first."))
+    samples = pl.read_parquet(_samples_path)
     # Each cell with the stratigraphic unit and lithology class of the GeoTOP voxel it lies in (a voxel's x
     # and y are its south-west corner, its z its center)
     cells = (
@@ -378,11 +389,13 @@ def classified(classification_path, np, pl, saved_runs, voxels, xr):
         .with_columns(pl.col("stratigraphic_unit", "grondsoort").fill_null("unknown"))
     )
     return (
+        SAMPLE_HEIGHT,
         cell_size,
         cells,
         ic,
         most_likely,
         most_likely_probability,
+        samples,
         zone_numbers,
         zone_probabilities,
     )
@@ -391,12 +404,12 @@ def classified(classification_path, np, pl, saved_runs, voxels, xr):
 @app.cell(hide_code=True)
 def view_intro(mo):
     mo.md(r"""
-    ## 2 · The lithology
+    ## 2 · The soil behavior types
 
     The selected run's cells from above at one level, with a west–east section above and a south–north section to
     the right, as in `04`: drag the red dot in the plan to move the sections, and drag in either section to
-    change the plan's level. Color the cells by their most likely zone, by how likely that zone is, by the
-    probability of one zone, by the median of Ic or its spread, P90 − P10, or by their simulation domain.
+    change the plan's level. Color the cells by their most likely SBTn zone, by how likely that zone is, by the
+    probability of one SBTn zone, by the median of Ic or its spread, P90 − P10, or by their simulation domain.
     Hover over a cell for its zone and how likely it is. Click a CPT in the plan to show it below the sections
     in its column of cells: Ic of the realizations, the probabilities of the zones and the zones of the CPT
     samples, which are classified the same way as the cells (section 3).
@@ -444,21 +457,21 @@ def view_controls(ZONE_LABELS, mo, zone_numbers, zone_probabilities):
     _occurring = [int(_zone) for _zone, _probabilities in zip(zone_numbers, zone_probabilities) if _probabilities.max() > 0]
     color_by = mo.ui.radio(
         {
-            "Lithology": "lithology",
+            "Most likely SBTn": "most likely",
             "Its probability": "its probability",
-            "Probability of a zone": "probability",
+            "SBTn probability": "probability",
             "Ic median": "ic median",
             "Ic spread": "ic spread",
             "Simulation domain": "domain",
         },
-        value="Lithology",
+        value="Most likely SBTn",
         label="Color by",
         inline=True,
     )
     probability_of = mo.ui.dropdown(
         {ZONE_LABELS[_zone]: _zone for _zone in _occurring},
         value=ZONE_LABELS[3 if 3 in _occurring else _occurring[0]],
-        label="Zone",
+        label="SBTn zone",
     )
     return color_by, probability_of
 
@@ -531,52 +544,9 @@ def cross_sections(
     return cross_sections, section_view
 
 
-@app.cell(hide_code=True)
-def section_values(
-    ZONE_LABELS,
-    color_by,
-    ic,
-    most_likely_probability,
-    np,
-    probability_of,
-    section_view,
-    zone_numbers,
-    zone_probabilities,
-):
-    # The cross-sections colored by what color_by shows. Colored by a class, the value under the pointer is
-    # the probability of the most likely zone.
-    _values, _label, _low, _high, _scheme = most_likely_probability, "Probability of the most likely zone", 0.0, 1.0, "viridis"
-    if color_by.value == "probability":
-        _index = int(np.searchsorted(zone_numbers, probability_of.value))
-        _values, _label = zone_probabilities[_index], f"Probability of {ZONE_LABELS[probability_of.value]}"
-    elif color_by.value == "ic median":
-        _values, _label, _low, _high = ic["p50"], "Ic median", 1.31, 3.6
-    elif color_by.value == "ic spread":
-        _values = ic["p90"] - ic["p10"]
-        _label, _low, _high, _scheme = "Ic P90 − P10", 0.0, float(np.nanpercentile(_values, 98)), "oranges"
-    section_view.values = np.asarray(_values, dtype=np.float32).tobytes()
-    section_view.value_scale = {"label": _label, "log": False, "min": _low, "max": _high, "scheme": _scheme}
-    section_view.color_by = {"lithology": "lithology", "domain": "domain"}.get(color_by.value, "value")
-    return
-
-
-@app.cell(hide_code=True)
-def selected_cpt(mo):
-    # The CPT clicked in the cross-sections
-    get_selected_cpt, set_selected_cpt = mo.state(None)
-    return get_selected_cpt, set_selected_cpt
-
-
-@app.cell(hide_code=True)
-def follow_selected_cpt(cross_sections, get_selected_cpt, set_selected_cpt):
-    # cross_sections also changes when the sections move; only another CPT goes on to what shows it
-    if cross_sections.selected_cpt != get_selected_cpt():
-        set_selected_cpt(cross_sections.selected_cpt)
-    return
-
-
-@app.cell(hide_code=True)
+@app.cell(hide_code=True, expand_output=True)
 def cpt_profile(
+    SAMPLE_HEIGHT,
     SOIL_BEHAVIOR_COLORS,
     ZONE_LABELS,
     alt,
@@ -594,7 +564,7 @@ def cpt_profile(
     _bro_id = get_selected_cpt()
     mo.stop(_bro_id is None, mo.md("Click a CPT in the plan above."))
     _cpt = measured.filter(pl.col("bro_id") == _bro_id).with_columns(
-        label=pl.col("zone").replace_strict(ZONE_LABELS, return_dtype=pl.String), top=pl.col("z") + 0.25, bottom=pl.col("z") - 0.25
+        label=pl.col("zone").replace_strict(ZONE_LABELS, return_dtype=pl.String), top=pl.col("z") + SAMPLE_HEIGHT / 2, bottom=pl.col("z") - SAMPLE_HEIGHT / 2
     )
     mo.stop(_cpt.is_empty(), mo.md(f"{_bro_id} has no samples with both qc and fs."))
     _x, _y = _cpt["x"][0], _cpt["y"][0]
@@ -648,11 +618,11 @@ def cpt_profile(
         alt.Chart(_bars)
         .mark_rect()
         .encode(
-            x=alt.X("start:Q", title="Probability of each zone", scale=alt.Scale(domain=[0, 1])),
+            x=alt.X("start:Q", title="Probability of each SBTn zone", scale=alt.Scale(domain=[0, 1])),
             x2="end:Q",
             y=alt.Y("top:Q", title=None, scale=_y_scale),
             y2="bottom:Q",
-            color=alt.Color("label:N", title="Zone", scale=_zone_scale, legend=alt.Legend(labelLimit=220)),
+            color=alt.Color("label:N", title="SBTn zone", scale=_zone_scale, legend=alt.Legend(labelLimit=220)),
             tooltip=["z", "label", alt.Tooltip("probability:Q", format=".0%")],
         )
     )
@@ -686,41 +656,100 @@ def cpt_profile(
 
 
 @app.cell(hide_code=True)
+def section_values(
+    ZONE_LABELS,
+    color_by,
+    ic,
+    most_likely_probability,
+    np,
+    probability_of,
+    section_view,
+    zone_numbers,
+    zone_probabilities,
+):
+    # The cross-sections colored by what color_by shows. Colored by a class, the value under the pointer is
+    # the probability of the most likely zone.
+    _values, _label, _low, _high, _scheme = most_likely_probability, "Probability of the most likely SBTn zone", 0.0, 1.0, "viridis"
+    if color_by.value == "probability":
+        _index = int(np.searchsorted(zone_numbers, probability_of.value))
+        _values, _label = zone_probabilities[_index], f"Probability of {ZONE_LABELS[probability_of.value]}"
+    elif color_by.value == "ic median":
+        _values, _label, _low, _high = ic["p50"], "Ic median", 1.31, 3.6
+    elif color_by.value == "ic spread":
+        _values = ic["p90"] - ic["p10"]
+        _label, _low, _high, _scheme = "Ic P90 − P10", 0.0, float(np.nanpercentile(_values, 98)), "oranges"
+    section_view.values = np.asarray(_values, dtype=np.float32).tobytes()
+    section_view.value_scale = {"label": _label, "log": False, "min": _low, "max": _high, "scheme": _scheme}
+    section_view.color_by = {"most likely": "lithology", "domain": "domain"}.get(color_by.value, "value")
+    return
+
+
+@app.cell(hide_code=True)
+def selected_cpt(mo):
+    # The CPT clicked in the cross-sections
+    get_selected_cpt, set_selected_cpt = mo.state(None)
+    return get_selected_cpt, set_selected_cpt
+
+
+@app.cell(hide_code=True)
+def follow_selected_cpt(cross_sections, get_selected_cpt, set_selected_cpt):
+    # cross_sections also changes when the sections move; only another CPT goes on to what shows it
+    if cross_sections.selected_cpt != get_selected_cpt():
+        set_selected_cpt(cross_sections.selected_cpt)
+    return
+
+
+@app.cell(hide_code=True)
 def check_intro(mo):
     mo.md(r"""
     ## 3 · Checks
 
-    The CPT samples of 0.5 m are classified the same way as the cells, with GeoTOP's ground: the zones of the
+    The CPT samples are classified the same way as the cells, with GeoTOP's ground: the zones of the
     cells should follow theirs. The first chart compares the shares of the zones per domain: of the CPT
     samples, of all realizations, and of the most likely zone, which leans towards the zones that are common
     in the domain. The table asks the same of the cells the CPT samples lie in. Since the realizations are
     conditioned on those samples, it shows that the classification keeps what the simulation honors, not how
-    well it predicts lithology away from the CPTs.
+    well it predicts the soil behavior type away from the CPTs.
     """)
     return
 
 
 @app.cell(hide_code=True)
-def measured(GAMMA_MISSING, ground_levels, np, pl, robertson, samples, voxels):
-    # The CPT samples with a qc and fs, with their zone and Ic, on all GeoTOP's levels so that what lies above
-    # them weighs as above the cells
-    _usable = samples.filter((pl.col("qc") > 0) & (pl.col("fs") > 0)).join(
-        ground_levels, left_on=["column_x", "column_y"], right_on=["x", "y"]
-    )
-    _ids = _usable["bro_id"].unique().sort().to_list()
-    _levels = np.sort(voxels["z"].unique().to_numpy())[::-1]
-    _rows = _usable["bro_id"].replace_strict({_b: _i for _i, _b in enumerate(_ids)}, return_dtype=pl.Int64).to_numpy()
-    _depths = np.searchsorted(-_levels, -_usable["z"].to_numpy())
-    _qc, _fs = np.full((2, len(_ids), len(_levels)), np.nan)
-    _qc[_rows, _depths] = _usable["qc"].to_numpy()
-    _fs[_rows, _depths] = _usable["fs"].to_numpy()
-    _ground = _usable.group_by("bro_id").agg(pl.first("ground_level")).sort("bro_id")["ground_level"].to_numpy()
-    _result = robertson(_qc, _fs, _levels, _ground, gamma_missing=GAMMA_MISSING)
-    measured = _usable.select("bro_id", "x", "y", "z", "domain").with_columns(
-        pl.Series("zone", _result["zone"][_rows, _depths], dtype=pl.Int64),
-        pl.Series("ic", _result["ic"][_rows, _depths]),
-    )
-    return (measured,)
+def measured(
+    GAMMA_MISSING,
+    SAMPLE_HEIGHT,
+    VOXEL,
+    ground_levels,
+    np,
+    pl,
+    robertson,
+    samples,
+    voxels,
+):
+    def classified_samples(samples, height):
+        """CPT samples of a height with a qc and fs, with their zone and Ic, on all levels of their height in GeoTOP's
+        voxels so that what lies above them weighs as above the cells"""
+        _usable = samples.filter((pl.col("qc") > 0) & (pl.col("fs") > 0)).join(
+            ground_levels, left_on=["column_x", "column_y"], right_on=["x", "y"]
+        )
+        _ids = _usable["bro_id"].unique().sort().to_list()
+        _offsets = -VOXEL / 2 + (np.arange(round(VOXEL / height)) + 0.5) * height
+        _levels = np.unique(np.round(voxels["z"].unique().to_numpy()[:, None] + _offsets, 3))[::-1]
+        _rows = _usable["bro_id"].replace_strict({_b: _i for _i, _b in enumerate(_ids)}, return_dtype=pl.Int64).to_numpy()
+        _depths = np.searchsorted(-_levels, -_usable["z"].to_numpy())
+        _qc, _fs = np.full((2, len(_ids), len(_levels)), np.nan)
+        _qc[_rows, _depths] = _usable["qc"].to_numpy()
+        _fs[_rows, _depths] = _usable["fs"].to_numpy()
+        _ground = _usable.group_by("bro_id").agg(pl.first("ground_level")).sort("bro_id")["ground_level"].to_numpy()
+        _result = robertson(_qc, _fs, _levels, _ground, gamma_missing=GAMMA_MISSING)
+        return _usable.select("bro_id", "x", "y", "z", "voxel_z", "domain").with_columns(
+            pl.Series("zone", _result["zone"][_rows, _depths], dtype=pl.Int64),
+            pl.Series("ic", _result["ic"][_rows, _depths]),
+        )
+
+
+    measured = classified_samples(samples, SAMPLE_HEIGHT)
+    return classified_samples, measured
 
 
 @app.cell(hide_code=True)
@@ -786,7 +815,7 @@ def zone_shares(
         y=alt.Y("source:N", title=None, sort=_order),
         color=alt.Color(
             "label:N",
-            title="Zone",
+            title="SBTn zone",
             scale=alt.Scale(
                 domain=list(ZONE_LABELS.values()),
                 range=[SOIL_BEHAVIOR_COLORS[_z] for _z in ZONE_LABELS],
@@ -821,12 +850,12 @@ def at_the_cpts(
     pl,
     zone_probabilities,
 ):
-    # Each CPT sample with the cells it lies in: those of its column of cells in its voxel's level
+    # Each CPT sample with the cell at its center, of the same height
     _at = measured.with_columns(
         x=((pl.col("x") / cell_size["x"]).floor() + 0.5) * cell_size["x"],
         y=((pl.col("y") / cell_size["y"]).floor() + 0.5) * cell_size["y"],
-        voxel_z="z",
-    ).join(cells.select("cell", "x", "y", "voxel_z"), on=["x", "y", "voxel_z"])
+        z=pl.col("z").round(3),
+    ).join(cells.select("cell", "x", "y", pl.col("z").round(3)), on=["x", "y", "z"])
     _index = _at["cell"].to_numpy()
     _at = _at.with_columns(
         same=pl.Series(most_likely[_index] == _at["zone"].to_numpy()),
