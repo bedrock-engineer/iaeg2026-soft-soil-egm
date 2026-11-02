@@ -2,6 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "altair",
+#     "anywidget==0.11.0",
 #     "bimpolars",
 #     "bromodels==0.0.1",
 #     "marimo>=0.25.2",
@@ -11,6 +12,7 @@
 #     "pyarrow",
 #     "pyproj==3.8.0",
 #     "specklewidgets",
+#     "traitlets==5.16.1",
 # ]
 #
 # [tool.uv.sources]
@@ -44,15 +46,19 @@ def _():
     from pathlib import Path
 
     import altair as alt
+    import anywidget
     import bimpolars as bpl
     import bromodels
     import marimo as mo
     import numpy as np
     import polars as pl
     import pyproj
+    import traitlets
     from marimo_lens import Lens
     from specklewidgets import GeoSpeckleViewer
+    from specklewidgets.bim import bim_objects
     from specklewidgets.geo import pdok_3d_buildings
+    from specklewidgets.models import models_gz
 
     # RD New + NAP to WGS 84 follows RDNAPTRANS2018 only with the NSGI grids, which PROJ fetches
     pyproj.network.set_network_enabled(True)
@@ -63,12 +69,16 @@ def _():
         Lens,
         Path,
         alt,
+        anywidget,
+        bim_objects,
         bpl,
         bromodels,
         mo,
+        models_gz,
         np,
         pdok_3d_buildings,
         pl,
+        traitlets,
     )
 
 
@@ -137,19 +147,29 @@ def legends(bromodels, pl):
 
 @app.cell(hide_code=True)
 def presets(mo):
-    # Channel deposits and layers pooled into the laagpakket they belong to (ANAWA into NAWA; ENAWO and
-    # NAWOVE into NAWO), the undivided Formatie van Boxtel into BXWISIKO and the Basisveen into the
-    # Hollandveen; the anthropogenic fill (AAOP) is not simulated
-    _POOLED = {"ANAWA": "NAWA", "ENAWO": "NAWO", "NAWOVE": "NAWO", "BX": "BXWISIKO", "NIBA": "NIHO", "AAOP": "not simulated"}
+    # The small stratigraphic units pooled with the unit their CPT data match (median qc in MPa):
+    # - ANAWA (0.98), the Walcheren channel deposits, into NAWA (1.07)
+    # - NAWOVE (13.7), NIBA (13.5), ENAWO (8.9) and BX (8.0) into BXWISIKO (14.3). The CPTs read sand in
+    #   all of them: GeoTOP's Laag van Velsen and Basisveen are thinner here than its 0.5 m voxels, and the
+    #   Wormer channel deposits and the undivided Boxtel are sandy.
+    # The anthropogenic fill (AAOP) is not simulated.
+    _POOLED = {
+        "ANAWA": "NAWA",
+        "NAWOVE": "BXWISIKO",
+        "NIBA": "BXWISIKO",
+        "ENAWO": "BXWISIKO",
+        "BX": "BXWISIKO",
+        "AAOP": "not simulated",
+    }
     PRESETS = {
         "Every stratigraphic unit": {"units": {}, "split": False, "cut": False},
-        "Stratigraphic units, channel deposits and thin layers pooled": {"units": _POOLED, "split": False, "cut": False},
+        "Small stratigraphic units pooled by their CPT data": {"units": _POOLED, "split": False, "cut": False},
         "Pooled stratigraphic units, cut at the deepest CPT": {"units": _POOLED, "split": False, "cut": True},
         "Pooled stratigraphic units, split by lithology group": {"units": _POOLED, "split": True, "cut": False},
         "Lithology groups only": {"units": {"AAOP": "not simulated"}, "all": "all stratigraphic units", "split": True, "cut": False},
     }
     preset = mo.ui.dropdown(
-        options=list(PRESETS), value="Stratigraphic units, channel deposits and thin layers pooled", label="Start from"
+        options=list(PRESETS), value="Small stratigraphic units pooled by their CPT data", label="Start from"
     )
     preset
     return PRESETS, preset
@@ -230,7 +250,7 @@ def controls(
     )
     _header = "".join(
         f'<th style="text-align:left;padding:2px 6px;white-space:nowrap">{_h}</th>'
-        for _h in ["Code", "Stratigraphic unit", "Top (m NAP)", "Base (m NAP)", "Voxels", "Lithology classes", "Domain"]
+        for _h in ["Code", "Stratigraphic unit", "Top (m NAP)", "Base (m NAP)", "No. voxels", "Lithology classes", "Simulation domain"]
     )
     # The lithology classes in the model, from the most voxels to the fewest
     _classes = _lithology.group_by("lithoklasse", "grondsoort").agg(pl.sum("len")).sort("len", descending=True)
@@ -419,13 +439,120 @@ def coverage(alt, domain_scale, domain_summary, min_metres, pl):
 
 
 @app.cell(hide_code=True)
-def viewer_intro(mo):
+def section_intro(mo):
     mo.md(r"""
-    ## 2 · The domains in 3D
+    ## 3 · Cross-sections
 
-    The simulated voxels in their domain's colour, and the CPTs as dark sticks from their top to their
-    base, among the buildings of PDOK's 3D BAG. Click a voxel or a CPT to see it below.
+    The voxels from above at one level, with a west–east section above and a south–north section to
+    the right, both through the column under the red dot. Drag the red dot in the plan to move the
+    sections, and drag in either section to change the plan's level. The CPTs are dots in the plan. In
+    the sections, each column they cross shows the median qc of its CPTs, in a band from their 10th to
+    their 90th percentile. Hover over a CPT in the plan for its own qc, and over a voxel for its domain,
+    stratigraphic unit and lithology class.
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def cross_sections_widget(Path, anywidget, mo, traitlets):
+    class CrossSections(anywidget.AnyWidget):
+        """The voxels from above at the level z, with a west–east section through the row of columns at
+        y and a south–north one through the column at x (x and y a column's south-west corner)"""
+
+        _esm = Path(mo.notebook_dir()) / "cross_sections.js"
+        # Per voxel: x, y, z and its indices in units and lithologies
+        voxels = traitlets.List().tag(sync=True)
+        units = traitlets.List().tag(sync=True)
+        lithologies = traitlets.List().tag(sync=True)
+        # Per CPT: its x and y, and its qc (MPa) per voxel level z
+        cpts = traitlets.List().tag(sync=True)
+        # The domains' names and colours, and each voxel's index in them (-1 where it is not simulated)
+        domains = traitlets.List().tag(sync=True)
+        domain_of = traitlets.List().tag(sync=True)
+        x = traitlets.Float().tag(sync=True)
+        y = traitlets.Float().tag(sync=True)
+        z = traitlets.Float().tag(sync=True)
+
+    return (CrossSections,)
+
+
+@app.cell(hide_code=True)
+def cross_sections(CrossSections, mo, pl, samples, voxels):
+    # Made once for the voxels, so the sections stay where they were dragged when the domains change
+    _units = voxels.select(
+        "stratigraphic_unit", pl.format("{} · {}", "stratigraphic_unit", "geologische_eenheid").alias("name")
+    ).unique("stratigraphic_unit", maintain_order=True)
+    _lithologies = voxels["grondsoort"].unique(maintain_order=True)
+    _cpts = samples.sort("z", descending=True).group_by("bro_id", maintain_order=True).agg(pl.first("x", "y"), "z", "qc")
+    # The sections start through the column with the most CPTs, at the CPT samples' median level
+    _start = samples.group_by("column_x", "column_y").agg(pl.n_unique("bro_id")).sort("bro_id", descending=True).row(0)
+    section_view = CrossSections(
+        voxels=voxels.select(
+            pl.col("x", "y").cast(pl.Int64),
+            "z",
+            pl.col("stratigraphic_unit").replace_strict({_u: _i for _i, _u in enumerate(_units["stratigraphic_unit"])}),
+            pl.col("grondsoort").replace_strict({_l: _i for _i, _l in enumerate(_lithologies)}),
+        ).rows(),
+        units=_units["name"].to_list(),
+        lithologies=_lithologies.to_list(),
+        cpts=_cpts.to_dicts(),
+        x=_start[0],
+        y=_start[1],
+        z=round(samples["z"].median() * 2) / 2,
+    )
+    cross_sections = mo.ui.anywidget(section_view)
+    cross_sections
+    return cross_sections, section_view
+
+
+@app.cell(hide_code=True)
+def domain_viewer(GeoSpeckleViewer, geotop_bimdf, mo, pdok_3d_buildings):
+    # Made once, so it keeps its camera and its WebGL context; domain_viewer_objects fills it
+    speckle_view = GeoSpeckleViewer(tilesets=[pdok_3d_buildings(geotop_bimdf)], height=550)
+    domain_viewer = mo.ui.anywidget(speckle_view)
+    cut_sections = mo.ui.switch(value=True, label="Leave out the voxels the cross-sections run through")
+    mo.vstack([cut_sections, domain_viewer])
+    return cut_sections, domain_viewer, speckle_view
+
+
+@app.cell(hide_code=True)
+def domain_viewer_objects(
+    bim_objects,
+    cross_sections,
+    cut_sections,
+    domain_bimdf,
+    models_gz,
+    pl,
+    speckle_view,
+):
+    # The domains into the 3D viewer, without the voxels in the cross-sections' row and column of
+    # columns when cut_sections is on
+    _geotop = pl.col("properties").struct.field("GeoTOP")
+    _in_sections = (_geotop.struct.field("x") == cross_sections.value["x"]) | (
+        _geotop.struct.field("y") == cross_sections.value["y"]
+    )
+    speckle_view.objects_gz = models_gz(
+        bim_objects(domain_bimdf.filter(~_in_sections.fill_null(False)) if cut_sections.value else domain_bimdf)
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def viewer_selection(domain_bimdf, domain_viewer, pl):
+    # The voxels and CPTs selected in the GeoSpeckleViewer
+    domain_bimdf.filter(
+        pl.col("id").is_in([_obj["applicationId"] for _obj in domain_viewer.value["selected"]])
+    ).select("id", "class", "name", "domain")
+    return
+
+
+@app.cell(hide_code=True)
+def cross_sections_domains(DOMAIN_COLORS, section_view, voxel_domains):
+    # The domains into the cross-sections, without making them again
+    section_view.domains = [{"name": _name, "color": _color} for _name, _color in DOMAIN_COLORS.items()]
+    section_view.domain_of = (
+        voxel_domains["domain"].replace_strict(list(DOMAIN_COLORS), range(len(DOMAIN_COLORS)), default=-1).fill_null(-1).to_list()
+    )
     return
 
 
@@ -490,110 +617,6 @@ def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bimdf, pl, voxel_domains):
     )
     domain_bimdf = bpl.concat([_voxels, _cpt_sticks], how="diagonal_relaxed")
     return (domain_bimdf,)
-
-
-@app.cell(hide_code=True)
-def domain_viewer(GeoSpeckleViewer, domain_bimdf, mo, pdok_3d_buildings):
-    domain_viewer = mo.ui.anywidget(
-        GeoSpeckleViewer(domain_bimdf, tilesets=[pdok_3d_buildings(domain_bimdf)], height=550)
-    )
-    domain_viewer
-    return (domain_viewer,)
-
-
-@app.cell(hide_code=True)
-def viewer_selection(domain_bimdf, domain_viewer, pl):
-    # The voxels and CPTs selected in the GeoSpeckleViewer
-    domain_bimdf.filter(
-        pl.col("id").is_in([_obj["applicationId"] for _obj in domain_viewer.value["selected"]])
-    ).select("id", "class", "name", "domain")
-    return
-
-
-@app.cell(hide_code=True)
-def section_intro(mo):
-    mo.md(r"""
-    ## 3 · A cross-section
-
-    One row of GeoTOP columns, coloured by domain, with the qc of the CPTs in that row drawn from their
-    position (1 MPa per 2 m). Hover over a voxel or a trace for its values.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def section_direction(mo):
-    section_direction = mo.ui.radio(
-        options={"West–east": "x", "South–north": "y"}, value="West–east", label="Section", inline=True
-    )
-    section_direction
-    return (section_direction,)
-
-
-@app.cell(hide_code=True)
-def section_position(mo, pl, section_direction, voxels):
-    # The section runs along one row (west–east) or column (south–north) of GeoTOP columns
-    _across = "y" if section_direction.value == "x" else "x"
-    _positions = voxels[_across].unique().sort().cast(pl.Int64).to_list()
-    section_position = mo.ui.dropdown(
-        options={f"{_p} – {_p + 100}": _p for _p in _positions},
-        value=f"{_positions[len(_positions) // 2]} – {_positions[len(_positions) // 2] + 100}",
-        label=f"through the columns at {_across} (RD, m)",
-    )
-    section_position
-    return (section_position,)
-
-
-@app.cell(hide_code=True)
-def section(
-    DOMAIN_COLORS,
-    alt,
-    pl,
-    samples,
-    section_direction,
-    section_position,
-    voxel_domains,
-):
-    _along = section_direction.value
-    _across = "y" if _along == "x" else "x"
-    _section = voxel_domains.filter(pl.col(_across) == section_position.value).with_columns(
-        pl.col("domain").fill_null("not simulated"),
-        along0=pl.col(_along),
-        along1=pl.col(_along) + 100,
-        z0=pl.col("z") - 0.25,
-        z1=pl.col("z") + 0.25,
-    )
-    _scale = alt.Scale(domain=[*DOMAIN_COLORS, "not simulated"], range=[*DOMAIN_COLORS.values(), "#e8e8e8"])
-    _voxels = (
-        alt.Chart(_section)
-        .mark_rect()
-        .encode(
-            x=alt.X("along0:Q", title=f"{_along} (RD, m)", scale=alt.Scale(zero=False, nice=False)),
-            x2="along1:Q",
-            y=alt.Y("z0:Q", title="z (m NAP)"),
-            y2="z1:Q",
-            color=alt.Color("domain:N", scale=_scale, title="Domain"),
-            tooltip=["domain", "stratigraphic_unit", "grondsoort", "z", "x", "y"],
-        )
-    )
-    # The CPTs in this row of columns: their qc drawn from their position along the section
-    _traces = samples.filter(pl.col(f"column_{_across}") == section_position.value).with_columns(
-        trace=pl.col(_along) + 2 * pl.col("qc")
-    )
-    _lines = (
-        alt.Chart(_traces)
-        .mark_line(color="black", strokeWidth=1)
-        .encode(x="trace:Q", y="z:Q", detail="bro_id:N", order="z:Q", tooltip=["bro_id", "z", "qc", "rf"])
-    )
-    _positions = (
-        alt.Chart(_traces.group_by("bro_id").agg(pl.first(_along)))
-        .mark_rule(color="black", opacity=0.3)
-        .encode(x=f"{_along}:Q")
-    )
-    (_voxels + _positions + _lines).properties(
-        width="container", height=420, title=f"{_traces['bro_id'].n_unique()} CPTs in this row of columns"
-    )
-    return
 
 
 @app.cell(hide_code=True)
