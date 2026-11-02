@@ -43,6 +43,8 @@ def _(mo):
 
 @app.cell
 def _():
+    import json
+    from datetime import datetime
     from pathlib import Path
 
     import altair as alt
@@ -73,6 +75,8 @@ def _():
         bim_objects,
         bpl,
         bromodels,
+        datetime,
+        json,
         mo,
         models_gz,
         np,
@@ -96,7 +100,21 @@ def inputs(Path, mo):
     # The inputs 01_get_data.py writes: the cells that read them run again when it replaces them
     geotop_parquet = mo.watch.file(DATA_DIR / "geotop_bimdf.parquet")
     cpts_parquet = mo.watch.file(DATA_DIR / "cpts.parquet")
-    return cpts_parquet, geotop_parquet
+    # The simulation domains this notebook saves, for 03 to read: their definition, committed with the
+    # notebooks, and the domain of each voxel and CPT sample, in data/
+    DOMAINS_JSON = Path(mo.notebook_dir()) / "simulation_domains.json"
+    VOXEL_DOMAINS_PARQUET = DATA_DIR / "voxel_domains.parquet"
+    SAMPLE_DOMAINS_PARQUET = DATA_DIR / "sample_domains.parquet"
+    # The saved definition: the cells that read it run again when it is saved
+    domains_json = mo.watch.file(DOMAINS_JSON)
+    return (
+        DOMAINS_JSON,
+        SAMPLE_DOMAINS_PARQUET,
+        VOXEL_DOMAINS_PARQUET,
+        cpts_parquet,
+        domains_json,
+        geotop_parquet,
+    )
 
 
 @app.cell
@@ -146,7 +164,7 @@ def legends(bromodels, pl):
 
 
 @app.cell(hide_code=True)
-def presets(mo):
+def presets(DOMAINS_JSON, json, mo):
     # The small stratigraphic units pooled with the unit their CPT data match (median qc in MPa):
     # - ANAWA (0.98), the Walcheren channel deposits, into NAWA (1.07)
     # - NAWOVE (13.7), NIBA (13.5), ENAWO (8.9) and BX (8.0) into BXWISIKO (14.3). The CPTs read sand in
@@ -161,7 +179,22 @@ def presets(mo):
         "BX": "BXWISIKO",
         "AAOP": "not simulated",
     }
+    # The saved simulation domains come first, when there are any
+    _saved = json.loads(DOMAINS_JSON.read_text(encoding="utf-8")) if DOMAINS_JSON.exists() else None
+    _SAVED = "Saved in simulation_domains.json"
     PRESETS = {
+        **(
+            {
+                _SAVED: {
+                    "units": _saved["units"],
+                    "split": _saved["split_by_lithology"],
+                    "base": _saved["simulate_down_to"],
+                    "min_metres": _saved["min_cpt_metres"],
+                }
+            }
+            if _saved
+            else {}
+        ),
         "Every stratigraphic unit": {"units": {}, "split": False, "cut": False},
         "Small stratigraphic units pooled by their CPT data": {"units": _POOLED, "split": False, "cut": False},
         "Pooled stratigraphic units, cut at the deepest CPT": {"units": _POOLED, "split": False, "cut": True},
@@ -169,7 +202,9 @@ def presets(mo):
         "Lithology groups only": {"units": {"AAOP": "not simulated"}, "all": "all stratigraphic units", "split": True, "cut": False},
     }
     preset = mo.ui.dropdown(
-        options=list(PRESETS), value="Small stratigraphic units pooled by their CPT data", label="Start from"
+        options=list(PRESETS),
+        value=_SAVED if _saved else "Small stratigraphic units pooled by their CPT data",
+        label="Start from",
     )
     preset
     return PRESETS, preset
@@ -190,40 +225,67 @@ def controls(
     # The stratigraphic units in the model from the top down, each with the domain the preset puts it in
     _units = (
         voxels.group_by("stratigraphic_unit")
-        .agg(pl.max("z").alias("top"), pl.min("z").alias("base"), pl.len().alias("voxels"), pl.first("geologische_eenheid"))
+        .agg(
+            pl.max("z").alias("top"),
+            pl.min("z").alias("base"),
+            pl.len().alias("voxels"),
+            pl.first("geologische_eenheid"),
+        )
         .sort("top", descending=True)
     )
     _preset = PRESETS[preset.value]
-    _options = [*_units["stratigraphic_unit"], "all stratigraphic units", "not simulated"]
+    _options = [
+        *_units["stratigraphic_unit"],
+        "all stratigraphic units",
+        "not simulated",
+    ]
     unit_domains = mo.ui.dictionary(
         {
-            _unit: mo.ui.dropdown(_options, value=_preset["units"].get(_unit, _preset.get("all", _unit)))
+            _unit: mo.ui.dropdown(
+                _options,
+                value=_preset["units"].get(_unit, _preset.get("all", _unit)),
+            )
             for _unit in _units["stratigraphic_unit"]
         }
     )
-    split_by_lithology = mo.ui.switch(value=_preset["split"], label="Split each domain by lithology group")
+    split_by_lithology = mo.ui.switch(
+        value=_preset["split"], label="Split each domain by lithology group"
+    )
     # Below the deepest CPT reading no CPT conditions a voxel
     _deepest_cpt = float(np.floor(cpts["z"].min() * 2) / 2)
     base_cut = mo.ui.slider(
-        start=-50, stop=0, step=0.5, value=_deepest_cpt if _preset["cut"] else -50, show_value=True,
+        start=-50,
+        stop=0,
+        step=1,
+        value=_preset.get("base", _deepest_cpt if _preset.get("cut") else -50),
+        include_input=True,
         label="Simulate down to (m NAP)",
     )
-    min_metres = mo.ui.slider(start=0.5, stop=5, step=0.5, value=1, show_value=True, label="A CPT conditions a domain with at least (m)")
-
+    min_metres = mo.ui.slider(
+        start=0.5,
+        stop=5,
+        step=0.5,
+        value=_preset.get("min_metres", 1),
+        show_value=True,
+        label="A CPT conditions a domain with at least (m)",
+    )
 
     def _text_color(hex_color):
         # Dark text on light colours, white on dark ones
         _r, _g, _b = (int(hex_color[_i : _i + 2], 16) for _i in (1, 3, 5))
-        return "black" if 0.299 * _r + 0.587 * _g + 0.114 * _b > 140 else "white"
-
+        return (
+            "black" if 0.299 * _r + 0.587 * _g + 0.114 * _b > 140 else "white"
+        )
 
     def _colored(text, color):
         return f'<td style="background:{color};color:{_text_color(color)};padding:2px 6px">{text}</td>'
 
-
     # Each stratigraphic unit's voxels per GeoTOP lithology class, as a bar of the classes' colours
-    _lithology = voxels.group_by("stratigraphic_unit", "lithoklasse", "grondsoort").len().sort("len", descending=True)
-
+    _lithology = (
+        voxels.group_by("stratigraphic_unit", "lithoklasse", "grondsoort")
+        .len()
+        .sort("len", descending=True)
+    )
 
     def _lithology_bar(unit):
         _rows = _lithology.filter(pl.col("stratigraphic_unit") == unit)
@@ -235,11 +297,14 @@ def controls(
         )
         return f'<div style="display:flex;width:160px;height:16px;border:1px solid #999">{_segments}</div>'
 
-
     _rows = "".join(
         "<tr>"
-        + _colored(_r["stratigraphic_unit"], STRAT_COLORS[_r["stratigraphic_unit"]])
-        + _colored(_r["geologische_eenheid"], STRAT_COLORS[_r["stratigraphic_unit"]])
+        + _colored(
+            _r["stratigraphic_unit"], STRAT_COLORS[_r["stratigraphic_unit"]]
+        )
+        + _colored(
+            _r["geologische_eenheid"], STRAT_COLORS[_r["stratigraphic_unit"]]
+        )
         + f'<td style="text-align:right;padding:2px 6px">{_r["top"]:+.1f}</td>'
         + f'<td style="text-align:right;padding:2px 6px">{_r["base"]:+.1f}</td>'
         + f'<td style="text-align:right;padding:2px 6px">{_r["voxels"]}</td>'
@@ -250,10 +315,22 @@ def controls(
     )
     _header = "".join(
         f'<th style="text-align:left;padding:2px 6px;white-space:nowrap">{_h}</th>'
-        for _h in ["Code", "Stratigraphic unit", "Top (m NAP)", "Base (m NAP)", "No. voxels", "Lithology classes", "Simulation domain"]
+        for _h in [
+            "Code",
+            "Stratigraphic unit",
+            "Top (m NAP)",
+            "Base (m NAP)",
+            "No. voxels",
+            "Lithology classes",
+            "Simulation domain",
+        ]
     )
     # The lithology classes in the model, from the most voxels to the fewest
-    _classes = _lithology.group_by("lithoklasse", "grondsoort").agg(pl.sum("len")).sort("len", descending=True)
+    _classes = (
+        _lithology.group_by("lithoklasse", "grondsoort")
+        .agg(pl.sum("len"))
+        .sort("len", descending=True)
+    )
     _legend = " ".join(
         f'<span style="white-space:nowrap;margin-right:12px">'
         f'<span style="display:inline-block;width:12px;height:12px;background:{LITH_COLORS[_r["lithoklasse"]]};'
@@ -262,10 +339,18 @@ def controls(
     )
     mo.vstack(
         [
-            mo.hstack([split_by_lithology, base_cut, min_metres], justify="start", gap=2),
+            mo.hstack(
+                [split_by_lithology, base_cut, min_metres],
+                justify="start",
+                gap=2,
+            ),
             mo.md(f"The deepest CPT reading is at {_deepest_cpt:+.1f} m NAP."),
-            mo.Html(f'<table style="border-collapse:separate;border-spacing:0 2px"><tr>{_header}</tr>{_rows}</table>'),
-            mo.Html(f'<div style="font-size:0.85em">Lithology classes: {_legend}</div>'),
+            mo.Html(
+                f'<table style="border-collapse:separate;border-spacing:0 2px"><tr>{_header}</tr>{_rows}</table>'
+            ),
+            mo.Html(
+                f'<div style="font-size:0.85em">Lithology classes: {_legend}</div>'
+            ),
         ]
     )
     return base_cut, min_metres, split_by_lithology, unit_domains
@@ -479,7 +564,7 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
     return (CrossSections,)
 
 
-@app.cell(hide_code=True)
+@app.cell(hide_code=True, expand_output=True)
 def cross_sections(
     CrossSections,
     LITH_COLORS,
@@ -530,10 +615,10 @@ def cross_sections(
     return cross_sections, section_view
 
 
-@app.cell(hide_code=True)
+@app.cell(hide_code=True, expand_output=True)
 def domain_viewer(GeoSpeckleViewer, geotop_bimdf, mo, pdok_3d_buildings):
     # Made once, so it keeps its camera and its WebGL context; domain_viewer_objects fills it
-    speckle_view = GeoSpeckleViewer(tilesets=[pdok_3d_buildings(geotop_bimdf)], height=550)
+    speckle_view = GeoSpeckleViewer(tilesets=[pdok_3d_buildings(geotop_bimdf)], height=525)
     domain_viewer = mo.ui.anywidget(speckle_view)
     cut_sections = mo.ui.switch(value=True, label="Leave out the voxels the cross-sections run through")
     mo.vstack([cut_sections, domain_viewer])
@@ -699,6 +784,87 @@ def qc_rf(alt, domain_scale, pl, sample_domains):
         .add_params(_pick)
         .properties(width=520, height=380, title="qc against Rf, one dot per 0.5 m of CPT")
     )
+    return
+
+
+@app.cell(hide_code=True)
+def save_intro(mo):
+    mo.md(r"""
+    ## 5 · Save the simulation domains
+
+    Saving pins the domains chosen above for the next notebooks. It writes their definition to
+    `notebooks/simulation_domains.json`, which is committed with the notebooks and comes back here as the
+    first preset, and the domain of each voxel and CPT sample to `data/voxel_domains.parquet` and
+    `data/sample_domains.parquet`, which `03` reads.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def domain_definition(
+    DOMAIN_COLORS,
+    LITH_GROUPS,
+    base_cut,
+    min_metres,
+    mo,
+    split_by_lithology,
+    unit_domains,
+):
+    # The chosen simulation domains as simulation_domains.json holds them
+    domain_definition = {
+        "units": dict(unit_domains.value),
+        "split_by_lithology": split_by_lithology.value,
+        "lithology_groups": LITH_GROUPS,
+        "simulate_down_to": base_cut.value,
+        "min_cpt_metres": min_metres.value,
+        "colors": DOMAIN_COLORS,
+    }
+    save_domains = mo.ui.run_button(label="Save these simulation domains")
+    save_domains
+    return domain_definition, save_domains
+
+
+@app.cell(hide_code=True)
+def saved_status(Path, domain_definition, domains_json, json, mo):
+    # Whether the saved simulation domains are the ones chosen above; runs again when they are saved
+    if not Path(domains_json).exists():
+        _status = mo.callout(mo.md("No simulation domains are saved yet."), kind="warn")
+    else:
+        _saved = json.loads(Path(domains_json).read_text(encoding="utf-8"))
+        _saved_at = _saved.pop("saved")
+        _status = (
+            mo.callout(mo.md(f"The simulation domains above are the ones saved on {_saved_at}."), kind="success")
+            if _saved == json.loads(json.dumps(domain_definition))
+            else mo.callout(
+                mo.md(f"The simulation domains above differ from the ones saved on {_saved_at}. Save them to use them in `03`."),
+                kind="warn",
+            )
+        )
+    _status
+    return
+
+
+@app.cell(hide_code=True)
+def save(
+    DOMAINS_JSON,
+    SAMPLE_DOMAINS_PARQUET,
+    VOXEL_DOMAINS_PARQUET,
+    datetime,
+    domain_definition,
+    json,
+    mo,
+    sample_domains,
+    save_domains,
+    voxel_domains,
+):
+    mo.stop(not save_domains.value)
+    DOMAINS_JSON.write_text(
+        json.dumps({"saved": datetime.now().isoformat(timespec="seconds"), **domain_definition}, indent=2, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    voxel_domains.write_parquet(VOXEL_DOMAINS_PARQUET)
+    sample_domains.write_parquet(SAMPLE_DOMAINS_PARQUET)
     return
 
 
