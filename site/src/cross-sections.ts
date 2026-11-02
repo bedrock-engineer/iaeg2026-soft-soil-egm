@@ -79,13 +79,16 @@ export function mountCrossSections(
   const perCell = (value: (index: number) => number) =>
     new DataView(Float32Array.from(cells, value).buffer);
 
-  /** A mode's values and their scale, once its arrays are there */
+  /**
+   * A mode's values and their scale, once its arrays are there. Colored by a class, the value under the
+   * pointer is the probability of the most likely zone, as in the notebook.
+   */
   async function valuesOf(mode: Mode): Promise<Pick<CrossSectionsModel, "values" | "value_scale">> {
-    if (mode === "lithology" || mode === "likelihood") {
+    if (mode === "lithology" || mode === "likelihood" || mode === "domain") {
       const probability = await soil.probability();
       return {
         values: perCell((index) => probability[grid.sbtnMostLikely[index]][index]),
-        value_scale: { label: "Probability of its zone", log: false, min: 0, max: 1, scheme: "viridis" },
+        value_scale: { label: "Probability of the most likely SBTn zone", log: false, min: 0, max: 1, scheme: "viridis" },
       };
     }
     if (mode === "probability") {
@@ -120,7 +123,7 @@ export function mountCrossSections(
         value_scale: { label: "Ic P90 − P10", log: false, min: 0, max: quantile(new Float32Array(values.buffer), 0.98), scheme: "oranges" },
       };
     }
-    return { values: null, value_scale: null };
+    throw new Error(`No values for ${mode}`);
   }
 
   // A newer choice wins over one whose arrays are still loading
@@ -128,12 +131,12 @@ export function mountCrossSections(
   async function show(mode: Mode) {
     const generation = ++latest;
     zones.hidden = mode !== "probability";
-    // The most likely zone shows at once; its probability follows for the hover
+    // A class shows at once; the probability follows for the hover
     if (mode === "lithology" || mode === "domain") {
       model.set("values", null);
       model.set("color_by", mode);
     }
-    status.textContent = mode === "domain" ? "" : "Loading…";
+    status.textContent = "Loading…";
     try {
       const { values, value_scale } = await valuesOf(mode);
       if (generation !== latest) {
