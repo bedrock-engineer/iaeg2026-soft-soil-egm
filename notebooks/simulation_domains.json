@@ -1,0 +1,38 @@
+{
+  "saved": "2026-11-02T01:30:32",
+  "units": {
+    "AAOP": "not simulated",
+    "NAWA": "NAWA",
+    "NIHO": "NIHO",
+    "NAWO": "NAWO",
+    "ANAWA": "NAWA",
+    "NAWOVE": "BXWISIKO",
+    "BXWISIKO": "BXWISIKO",
+    "ENAWO": "BXWISIKO",
+    "NIBA": "BXWISIKO",
+    "BX": "BXWISIKO",
+    "KRBXDE": "KRBXDE",
+    "EE": "EE"
+  },
+  "split_by_lithology": false,
+  "lithology_groups": {
+    "v": "peat",
+    "k": "clay",
+    "kz": "clayey sand",
+    "zf": "sand",
+    "zm": "sand",
+    "zg": "sand",
+    "g": "sand",
+    "a": "fill"
+  },
+  "simulate_down_to": -36,
+  "min_cpt_metres": 1.0,
+  "colors": {
+    "NAWA": "#98dc75",
+    "NIHO": "#d08228",
+    "NAWO": "#3fa54c",
+    "BXWISIKO": "#ffff50",
+    "KRBXDE": "#b03060",
+    "EE": "#beff73"
+  }
+}
