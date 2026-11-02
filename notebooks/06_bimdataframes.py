@@ -39,7 +39,7 @@ def _(mo):
       Consecutive samples of the same soil behavior type (SBTn) merge into one cylinder per layer, wider than
       the cone so that it remains visible.
     - **The SBTn volumes:** all cells with the same most likely SBTn merge into one volume, the outer surface of
-      those cells. A volume can consist of several separate parts. The volumes leave out the pit of the site model on Speckle, where the CPTs stand free.
+      those cells. A volume can consist of several separate parts. The volumes leave out a pit, where the CPTs and part of the foundations stand free.
 
     Each row carries the summary statistics of what it merges, in the property set `CPT` or `SBTn volume`.
     """)
@@ -109,8 +109,8 @@ def inputs(Path, mo):
     # m, GeoTOP's columns, the height of its voxels and the radius of a CPT's cylinders; the sides of a cylinder
     COLUMN = 100.0
     VOXEL = 0.5
-    # The pit in the site model on Speckle, in RD New meters: the SBTn volumes leave it out
-    PIT = {"x": (121800, 122050), "y": (488650, 488750)}
+    # A pit to see the CPTs and part of the foundations in, in RD New meters: the SBTn volumes leave it out
+    PIT = {"x": (121800, 122080), "y": (488650, 488770)}
     CPT_RADIUS = 1.0
     CPT_SIDES = 16
     return (
