@@ -33,9 +33,9 @@ def _(mo):
     realizations of qc and fs in the domain's voxels, each honoring the CPTs and the domain's variogram.
     Their spread is the uncertainty between the CPTs.
 
-    Reads the simulation domains that `02_simulation_domains.py` saves (`notebooks/simulation_domains.json`,
-    `data/voxel_domains.parquet` and `data/sample_domains.parquet`) and the variograms that
-    `03_variograms.py` saves (`notebooks/variograms.json`). Per domain, the CPT samples are transformed and
+    Reads the simulation domains that `02_simulation_domains.py` saves (`notebooks/simulation_domains.json`
+    and `data/voxel_domains.parquet`) and the variograms and CPT samples per sample height that `03_variograms.py`
+    saves (`notebooks/variograms.json` and `data/simulation_samples_<height>cm.parquet`). Per domain, the CPT samples are transformed and
     detrended as in `03` and turned into normal scores, the scores are simulated with the domain's
     variogram, conditioned on the CPTs by simple kriging, and the simulated scores are transformed back
     through the domain's distribution of the CPT values, with the trend added again.
@@ -106,11 +106,10 @@ def inputs(Path, mo):
     domains_json = mo.watch.file(DOMAINS_JSON)
     variograms_json = mo.watch.file(VARIOGRAMS_JSON)
     voxels_parquet = mo.watch.file(DATA_DIR / "voxel_domains.parquet")
-    samples_parquet = mo.watch.file(DATA_DIR / "sample_domains.parquet")
     return (
+        DATA_DIR,
         SIMULATIONS_DIR,
         domains_json,
-        samples_parquet,
         variograms_json,
         voxels_parquet,
     )
@@ -118,77 +117,97 @@ def inputs(Path, mo):
 
 @app.cell(hide_code=True)
 def read_inputs(
+    DATA_DIR,
     Path,
     domains_json,
     json,
     mo,
     pl,
-    samples_parquet,
     variograms_json,
     voxels_parquet,
 ):
     mo.stop(
-        not all(Path(_f).exists() for _f in (domains_json, voxels_parquet, samples_parquet)),
+        not all(Path(_f).exists() for _f in (domains_json, voxels_parquet)),
         mo.md("Save the simulation domains in `02_simulation_domains.py` first."),
     )
     mo.stop(not Path(variograms_json).exists(), mo.md("Save the variograms in `03_variograms.py` first."))
     domain_definition = json.loads(Path(domains_json).read_text(encoding="utf-8"))
+    # The variograms 03 saved, per sample height and parameter
     saved_variograms = json.loads(Path(variograms_json).read_text(encoding="utf-8"))
     # Each parameter's variograms carry when they were saved and the date of the simulation domains they were
     # fitted on; neither changes the realizations
     SAVE_DATES = ("saved", "simulation_domains_saved")
     # The domains from the top down, in the colors 02 gave them
     DOMAIN_COLORS = domain_definition["colors"]
-    # The GeoTOP voxels in a simulation domain, and the CPT samples of 0.5 m in them
+    # The GeoTOP voxels in a simulation domain
     voxels = pl.read_parquet(Path(voxels_parquet)).filter(pl.col("domain").is_not_null()).select(
         "x", "y", "z", "domain", "stratigraphic_unit", "grondsoort"
     )
-    samples = pl.read_parquet(Path(samples_parquet)).filter(pl.col("domain").is_not_null())
 
 
-    def _problem(definition):
-        """Why a parameter's saved variograms cannot be simulated in the saved simulation domains, or None"""
+    def samples_path(height):
+        """The CPT samples that 03 saved with the variograms of a sample height"""
+        return DATA_DIR / f"simulation_samples_{height * 100:g}cm.parquet"
+
+
+    def samples_at(height):
+        return pl.read_parquet(samples_path(height)).filter(pl.col("domain").is_not_null())
+
+
+    def _problem(height, definition):
+        """Why a parameter's saved variograms of a sample height cannot be simulated in the saved simulation domains,
+        or None"""
         _fitted_on = definition.get("simulation_domains_saved")
         if _fitted_on != domain_definition["saved"]:
             return f"fitted on the simulation domains saved on {_fitted_on}" if _fitted_on else "fitted on unknown simulation domains"
+        if not samples_path(height).exists():
+            return "without its CPT samples"
         _missing = [_domain for _domain in DOMAIN_COLORS if _domain not in definition["domains"]]
         return f"without variograms for {', '.join(_missing)}" if _missing else None
 
 
-    # The parameters 03 saved variograms of, and those of them that can be simulated: fitted on the saved
-    # simulation domains, with variograms for each of them
-    _problems = {_name: _problem(_value) for _name, _value in saved_variograms.items() if isinstance(_value, dict)}
-    SIMULATED_PARAMETERS = [_name for _name, _reason in _problems.items() if _reason is None]
+    # Per sample height, the parameters 03 saved variograms of and those of them that can be simulated: fitted on
+    # the saved simulation domains, with their CPT samples and with variograms for each domain
+    _problems = {
+        float(_height): {_name: _problem(float(_height), _value) for _name, _value in _parameters.items()}
+        for _height, _parameters in saved_variograms.items()
+    }
+    USABLE = {_height: [_name for _name, _reason in _reasons.items() if _reason is None] for _height, _reasons in _problems.items()}
+    USABLE = {_height: _names for _height, _names in USABLE.items() if _names}
+    SIMULATED_PARAMETERS = list(dict.fromkeys(_name for _names in USABLE.values() for _name in _names))
+    _reasons = [
+        f"- **{_name}** at {_height * 100:g} cm: {_reason}"
+        for _height, _parameters in _problems.items()
+        for _name, _reason in _parameters.items()
+        if _reason
+    ]
     _unusable = mo.callout(
         mo.md(
             "These variograms do not belong to the simulation domains saved in `02` on "
-            f"{domain_definition['saved']}, so they cannot be simulated; save them in `03` again:\n\n"
-            + "\n".join(f"- **{_name}**: {_reason}" for _name, _reason in _problems.items() if _reason)
+            f"{domain_definition['saved']}, so they cannot be simulated; save them in `03` again:\n\n" + "\n".join(_reasons)
         ),
         kind="warn",
     )
-    mo.stop(
-        not SIMULATED_PARAMETERS,
-        _unusable if _problems else mo.md("Save the variograms of a parameter in `03_variograms.py` first."),
-    )
+    mo.stop(not USABLE, _unusable if _reasons else mo.md("Save the variograms of a parameter in `03_variograms.py` first."))
     mo.vstack(
         [
             mo.md(
                 f"**{voxels.height} GeoTOP voxels** in {len(DOMAIN_COLORS)} simulation domains, saved in `02` on "
-                f"{domain_definition['saved']}, with **{samples.height} CPT samples** from "
-                f"{samples['bro_id'].n_unique()} CPTs. Variograms saved in `03` of "
-                + ", ".join(f"**{_name}** on {saved_variograms[_name]['saved']}" for _name in SIMULATED_PARAMETERS)
+                f"{domain_definition['saved']}. Variograms and CPT samples saved in `03` at "
+                + "; ".join(f"**{_height * 100:g} cm** of {', '.join(_names)}" for _height, _names in sorted(USABLE.items()))
                 + "."
             ),
-            _unusable if len(SIMULATED_PARAMETERS) < len(_problems) else mo.md(""),
+            _unusable if _reasons else mo.md(""),
         ]
     )
     return (
         DOMAIN_COLORS,
         SAVE_DATES,
         SIMULATED_PARAMETERS,
+        USABLE,
         domain_definition,
-        samples,
+        samples_at,
+        samples_path,
         saved_variograms,
         voxels,
     )
@@ -215,7 +234,9 @@ def settings_intro(mo):
 
     The simulation cells divide each GeoTOP voxel of 100 × 100 × 0.5 m into cells of the chosen horizontal
     and vertical resolution, since the horizontal length scales of the variograms are 25–200 m and the vertical ones
-    about 0.5–6 m: on whole voxels, the values of neighboring voxels would be nearly unrelated. fs is
+    about 0.5–6 m: on whole voxels, the values of neighboring voxels would be nearly unrelated. The vertical resolutions are the sample
+    heights saved in `03`: a run conditions on that height's CPT samples with that height's variograms. A finer
+    height means more samples to condition on, so a much slower simulation. fs is
     co-simulated with qc (section 4), so that in each realization it keeps its relation with qc at the
     CPTs; choosing fs simulates qc with it. Rf is not simulated: it follows from each realization's qc and
     fs.
@@ -228,29 +249,70 @@ def settings_intro(mo):
 
 
 @app.cell(hide_code=True)
-def settings(SIMULATED_PARAMETERS, gs, mo):
+def settings(SIMULATED_PARAMETERS, USABLE, gs, mo):
     # The parameters, as 03 names them, and the covariance models of their variograms
-    PARAMETERS = {"qc (cone resistance)": "qc", "fs (sleeve friction)": "fs", "Rf (friction ratio)": "rf"}
+    PARAMETERS = {
+        "qc (cone resistance)": "qc",
+        "fs (sleeve friction)": "fs",
+        "Rf (friction ratio)": "rf",
+    }
     UNITS = {"qc": "MPa", "fs": "MPa", "rf": "%"}
-    MODELS = {"Exponential": gs.Exponential, "Spherical": gs.Spherical, "Gaussian": gs.Gaussian}
-    # Resolutions that divide a voxel of 100 × 100 × 0.5 m
-    HORIZONTAL_RESOLUTIONS = {"100 m: the GeoTOP voxels": 100.0, "50 m": 50.0, "25 m": 25.0, "20 m": 20.0, "10 m": 10.0}
-    VERTICAL_RESOLUTIONS = {"0.5 m: the GeoTOP voxels": 0.5, "25 cm": 0.25, "10 cm": 0.1}
+    MODELS = {
+        "Exponential": gs.Exponential,
+        "Spherical": gs.Spherical,
+        "Gaussian": gs.Gaussian,
+    }
+    # Resolutions that divide a voxel of 100 × 100 × 0.5 m; the vertical ones are the sample heights saved in 03
+    HORIZONTAL_RESOLUTIONS = {
+        "100 m: the GeoTOP voxels": 100.0,
+        "50 m": 50.0,
+        "25 m": 25.0,
+        "20 m": 20.0,
+        "10 m": 10.0,
+    }
+    _vertical = {
+        _label: _height
+        for _label, _height in {"0.5 m: the GeoTOP voxels": 0.5, "25 cm": 0.25, "10 cm": 0.1}.items()
+        if _height in USABLE
+    }
     # fs is co-simulated with qc when its variograms can be simulated (section 4), so that each realization
     # keeps their relation at the CPTs; qc is then simulated with it. Rf is not simulated: it follows from
     # each realization's qc and fs. It is listed for the runs saved before.
     COSIMULATED_WITH = {"fs": "qc"} if "qc" in SIMULATED_PARAMETERS else {}
-    # qc until Simulate is pressed, if its variograms can be simulated
-    _default = "qc" if "qc" in SIMULATED_PARAMETERS else SIMULATED_PARAMETERS[0]
-    DEFAULT_SETTINGS = {"parameters": [_default], "horizontal": 25.0, "vertical": 0.5, "realizations": 10, "seed": 2026}
-    _simulated = {_label: _name for _label, _name in PARAMETERS.items() if _name in SIMULATED_PARAMETERS and _name != "rf"}
+    _simulated = {
+        _label: _name
+        for _label, _name in PARAMETERS.items()
+        if _name in SIMULATED_PARAMETERS and _name != "rf"
+    }
+    # qc and fs on the coarsest saved height until Simulate is pressed, as far as they can be simulated
+    DEFAULT_SETTINGS = {
+        "parameters": list(_simulated.values()),
+        "horizontal": 25.0,
+        "vertical": next(iter(_vertical.values())),
+        "realizations": 10,
+        "seed": 2026,
+    }
     simulation_settings = (
         mo.md("{parameters}\n\n{horizontal} &nbsp; {vertical}\n\n{realizations} &nbsp; {seed}")
         .batch(
-            parameters=mo.ui.multiselect(_simulated, value=[_l for _l, _n in _simulated.items() if _n == _default], label="Parameters"),
-            horizontal=mo.ui.dropdown(HORIZONTAL_RESOLUTIONS, value="25 m", label="Horizontal resolution"),
-            vertical=mo.ui.dropdown(VERTICAL_RESOLUTIONS, value="0.5 m: the GeoTOP voxels", label="Vertical resolution"),
-            realizations=mo.ui.slider(1, 50, value=10, show_value=True, label="Realizations"),
+            parameters=mo.ui.multiselect(
+                _simulated,
+                value=list(_simulated),
+                label="Parameters",
+            ),
+            horizontal=mo.ui.dropdown(
+                HORIZONTAL_RESOLUTIONS,
+                value="25 m",
+                label="Horizontal resolution",
+            ),
+            vertical=mo.ui.dropdown(
+                _vertical,
+                value=next(iter(_vertical)),
+                label="Vertical resolution",
+            ),
+            realizations=mo.ui.slider(
+                1, 50, value=10, show_value=True, label="Realizations"
+            ),
             seed=mo.ui.number(value=2026, label="Seed"),
         )
         .form(submit_button_label="Simulate", bordered=True)
@@ -282,6 +344,7 @@ def simulate(
     grid_coords,
     grid_index,
     gs,
+    height_variograms,
     json,
     mo,
     np,
@@ -290,14 +353,13 @@ def simulate(
     pl,
     run_definition,
     run_path,
-    saved_variograms,
     settings,
     xr,
 ):
     def _variogram_model(name, domain):
         """A domain's variogram of one parameter as a 3D GSTools model: anisotropic, with the horizontal length
         scale along x and y and the vertical one along z"""
-        _definition = saved_variograms[name]
+        _definition = height_variograms[name]
         _variogram = _definition["domains"][domain]
         _len_scale = _variogram["len_scale"]
         return MODELS[_variogram.get("model", _definition.get("model"))](
@@ -314,7 +376,7 @@ def simulate(
     # Coordinates from the south-west corner of the cells, so that the kriging works with small numbers
     _origin = np.array([cells["x"].min(), cells["y"].min(), 0.0])
     # The cells kriged at once: their covariances with the data take CHUNK × data samples × 8 bytes
-    CHUNK = 10_000
+    CHUNK = 2_000
     # Each parameter's own seeds, whichever other parameters are simulated with it
     _parameter_number = {_name: _p for _p, _name in enumerate(PARAMETERS.values())}
 
@@ -356,7 +418,7 @@ def simulate(
         its scores are ρ times that parameter's scores in the same realization plus √(1 − ρ²) times its own
         field, with ρ the domain's correlation of the two at the CPTs. Its own field is conditioned on what
         the other parameter's scores at its CPT samples leave of its own scores there."""
-        _definition = saved_variograms[name]
+        _definition = height_variograms[name]
         _simulated = np.full((settings["realizations"], cells.height), np.nan)
         _scores = {}
         for _d, _domain in enumerate(DOMAIN_COLORS):
@@ -557,8 +619,9 @@ def saved_runs(
 
 
     def _current(definition):
+        _at_height = saved_variograms.get(f"{definition['resolution']['vertical']:g}", {})
         return definition["simulation_domains"] == _domains_now and all(
-            _variograms == {_k: _v for _k, _v in saved_variograms.get(_name, {}).items() if _k not in SAVE_DATES}
+            _variograms == {_k: _v for _k, _v in _at_height.get(_name, {}).items() if _k not in SAVE_DATES}
             for _name, _variograms in definition["variograms"].items()
         )
 
@@ -595,7 +658,18 @@ def saved_runs(
 
 
 @app.cell(hide_code=True)
-def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
+def selected_run(
+    SIMULATIONS_DIR,
+    json,
+    mo,
+    np,
+    pl,
+    samples_at,
+    samples_path,
+    saved_runs,
+    voxels,
+    xr,
+):
     mo.stop(saved_runs.value.is_empty(), mo.md("Select a run in the table above."))
     # The selected run: its definition, its cells (where the grid has a domain) and per parameter its
     # realizations as realizations × cells and their statistics per cell
@@ -612,6 +686,9 @@ def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
             for _name in run["parameters"]
         }
         _coords = {_axis: _dataset[_axis].values for _axis in ("x", "y", "z")}
+    # The CPT samples of the run's vertical resolution
+    mo.stop(not samples_path(run["resolution"]["vertical"]).exists(), mo.md("Save the variograms of this run's vertical resolution in `03_variograms.py` first."))
+    samples = samples_at(run["resolution"]["vertical"])
     # Whether each parameter was simulated as its log10
     run_log = {_name: _variograms["transform"] == "log10" for _name, _variograms in run["variograms"].items()}
     # Each cell with the stratigraphic unit and lithology class of the GeoTOP voxel it lies in (a voxel's x
@@ -638,7 +715,7 @@ def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
         .drop("voxel_x", "voxel_y", "voxel_z")
         .with_columns(pl.col("stratigraphic_unit", "grondsoort").fill_null("unknown"))
     )
-    return run, run_cells, run_log, simulated, statistics
+    return run, run_cells, run_log, samples, simulated, statistics
 
 
 @app.cell(hide_code=True)
@@ -770,57 +847,6 @@ def cross_sections(
 
 
 @app.cell(hide_code=True)
-def section_values(UNITS, color_by, np, run_log, section_view, statistics):
-    # The cross-sections colored by what color_by shows: the cells' domain, unit or lithology class, or a
-    # parameter's median or spread (P90 / P10 for log10 parameters, P90 − P10 otherwise) on a color scale over
-    # its 2nd to 98th percentile, logarithmic for log10 parameters
-    if color_by.value in ("domain", "unit", "lithology"):
-        section_view.color_by = color_by.value
-    else:
-        _name, _statistic = color_by.value.split()
-        _log = run_log[_name]
-        if _statistic == "spread":
-            _p10, _p90 = statistics[_name]["p10"], statistics[_name]["p90"]
-            _values, _label = (_p90 / _p10, f"{_name} P90 / P10") if _log else (_p90 - _p10, f"{_name} P90 − P10 ({UNITS[_name]})")
-        else:
-            _values, _label = statistics[_name]["p50"], f"{_name} median ({UNITS[_name]})"
-        _low, _high = np.nanpercentile(_values, [2, 98])
-        section_view.values = np.asarray(_values, dtype=np.float32).tobytes()
-        section_view.value_scale = {
-            "label": _label,
-            "log": bool(_log),
-            "min": float(_low),
-            "max": float(_high),
-            "scheme": "oranges" if _statistic == "spread" else "viridis",
-        }
-        section_view.color_by = "value"
-    return
-
-
-@app.cell(hide_code=True)
-def selected_cpt(mo):
-    # The CPT clicked in the cross-sections
-    get_selected_cpt, set_selected_cpt = mo.state(None)
-    return get_selected_cpt, set_selected_cpt
-
-
-@app.cell(hide_code=True)
-def follow_selected_cpt(cross_sections, get_selected_cpt, set_selected_cpt):
-    # cross_sections also changes when the sections move; only another CPT goes on to what shows it
-    if cross_sections.selected_cpt != get_selected_cpt():
-        set_selected_cpt(cross_sections.selected_cpt)
-    return
-
-
-@app.cell(hide_code=True)
-def check_parameter(PARAMETERS, mo, simulated):
-    _labels = {_name: _label for _label, _name in PARAMETERS.items()}
-    check_parameter = mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter")
-    check_parameter
-    return (check_parameter,)
-
-
-@app.cell(hide_code=True)
 def cpt_check(
     UNITS,
     alt,
@@ -879,6 +905,57 @@ def cpt_check(
             (_area + _lines + _median + _points).properties(width=420, height=440),
         ]
     )
+    return
+
+
+@app.cell(hide_code=True)
+def check_parameter(PARAMETERS, mo, simulated):
+    _labels = {_name: _label for _label, _name in PARAMETERS.items()}
+    check_parameter = mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter")
+    check_parameter
+    return (check_parameter,)
+
+
+@app.cell(hide_code=True)
+def section_values(UNITS, color_by, np, run_log, section_view, statistics):
+    # The cross-sections colored by what color_by shows: the cells' domain, unit or lithology class, or a
+    # parameter's median or spread (P90 / P10 for log10 parameters, P90 − P10 otherwise) on a color scale over
+    # its 2nd to 98th percentile, logarithmic for log10 parameters
+    if color_by.value in ("domain", "unit", "lithology"):
+        section_view.color_by = color_by.value
+    else:
+        _name, _statistic = color_by.value.split()
+        _log = run_log[_name]
+        if _statistic == "spread":
+            _p10, _p90 = statistics[_name]["p10"], statistics[_name]["p90"]
+            _values, _label = (_p90 / _p10, f"{_name} P90 / P10") if _log else (_p90 - _p10, f"{_name} P90 − P10 ({UNITS[_name]})")
+        else:
+            _values, _label = statistics[_name]["p50"], f"{_name} median ({UNITS[_name]})"
+        _low, _high = np.nanpercentile(_values, [2, 98])
+        section_view.values = np.asarray(_values, dtype=np.float32).tobytes()
+        section_view.value_scale = {
+            "label": _label,
+            "log": bool(_log),
+            "min": float(_low),
+            "max": float(_high),
+            "scheme": "oranges" if _statistic == "spread" else "viridis",
+        }
+        section_view.color_by = "value"
+    return
+
+
+@app.cell(hide_code=True)
+def selected_cpt(mo):
+    # The CPT clicked in the cross-sections
+    get_selected_cpt, set_selected_cpt = mo.state(None)
+    return get_selected_cpt, set_selected_cpt
+
+
+@app.cell(hide_code=True)
+def follow_selected_cpt(cross_sections, get_selected_cpt, set_selected_cpt):
+    # cross_sections also changes when the sections move; only another CPT goes on to what shows it
+    if cross_sections.selected_cpt != get_selected_cpt():
+        set_selected_cpt(cross_sections.selected_cpt)
     return
 
 
@@ -957,9 +1034,11 @@ def grid(
     COSIMULATED_WITH,
     DEFAULT_SETTINGS,
     PARAMETERS,
+    USABLE,
     mo,
     np,
     pl,
+    saved_variograms,
     simulation_settings,
     voxels,
 ):
@@ -969,6 +1048,10 @@ def grid(
     _parameters = {*_chosen["parameters"], *(COSIMULATED_WITH[_name] for _name in _chosen["parameters"] if _name in COSIMULATED_WITH)}
     settings = {**_chosen, "parameters": [_name for _name in PARAMETERS.values() if _name in _parameters]}
     mo.stop(not settings["parameters"], mo.md("Choose at least one parameter."))
+    _unsaved = [_name for _name in settings["parameters"] if _name not in USABLE[settings["vertical"]]]
+    mo.stop(_unsaved, mo.md(f"Save the variograms of {', '.join(_unsaved)} at {settings['vertical'] * 100:g} cm in `03_variograms.py` first."))
+    # The saved variograms of the chosen vertical resolution
+    height_variograms = saved_variograms[f"{settings['vertical']:g}"]
 
 
     def _offsets(name, voxel_size, cell_size, start):
@@ -1001,7 +1084,7 @@ def grid(
         f"**{cells.height} simulation cells** of {settings['horizontal']:g} × {settings['horizontal']:g} m × "
         f"{settings['vertical'] * 100:g} cm."
     )
-    return cells, grid_coords, grid_index, settings
+    return cells, grid_coords, grid_index, height_variograms, settings
 
 
 @app.cell
@@ -1009,25 +1092,27 @@ def conditioning(
     COSIMULATED_WITH,
     DOMAIN_COLORS,
     NormalDist,
+    height_variograms,
     mo,
     pl,
-    samples,
-    saved_variograms,
+    samples_at,
     settings,
 ):
     _inverse_normal = NormalDist().inv_cdf
+    # The CPT samples of the chosen vertical resolution
+    _samples = samples_at(settings["vertical"])
 
 
     def _conditioning(name):
         """The CPT samples of one parameter with their normal scores per domain, as in 03: the transformed
         value without the domain's saved trend, ranked"""
-        _definition = saved_variograms[name]
+        _definition = height_variograms[name]
         _value = pl.col(name).log10() if _definition["transform"] == "log10" else pl.col(name)
         _trends = pl.DataFrame(
             [{"domain": _domain, **_variogram["trend"]} for _domain, _variogram in _definition["domains"].items()]
         )
         return (
-            samples.filter(pl.col(name) > 0)
+            _samples.filter(pl.col(name) > 0)
             .select("domain", "bro_id", "x", "y", "z", value=_value, parameter=pl.lit(name))
             .join(_trends, on="domain")
             .with_columns(residual=pl.col("value") - (pl.col("intercept") + pl.col("slope") * pl.col("z")))
@@ -1072,8 +1157,8 @@ def simulation_runs(
     correlations,
     domain_definition,
     hashlib,
+    height_variograms,
     json,
-    saved_variograms,
     settings,
 ):
     # Raise when the simulation method changes, so that runs saved before are not reused
@@ -1081,7 +1166,7 @@ def simulation_runs(
 
 
     def _variograms(name):
-        return {_k: _v for _k, _v in saved_variograms[name].items() if _k not in SAVE_DATES}
+        return {_k: _v for _k, _v in height_variograms[name].items() if _k not in SAVE_DATES}
 
 
     def _parameter_definition(name):
