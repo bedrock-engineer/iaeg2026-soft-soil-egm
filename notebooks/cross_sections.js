@@ -1,10 +1,11 @@
-// GeoTOP voxels from above at one level (the plan), with a west–east section above it and a
-// south–north section to its right, both through the column under the red dot. The sections fold
-// out of the plan, so the ground surface is on their outer side. Drag in the plan to move the
-// sections, and drag in a section to change the plan's level. CPTs show as dots in the plan and,
-// in the sections, as one qc profile per column they cross: the median of the column's CPTs in a
-// band from their 10th to their 90th percentile. A CPT under the pointer in the plan shows its own
-// qc. The voxels are coloured by their simulation domain, stratigraphic unit or lithology class.
+// Voxels from above at one level (the plan), with a west–east section above it and a south–north
+// section to its right, both through the cell under the red dot. The sections fold out of the plan,
+// so the ground surface is on their outer side. Drag in the plan to move the sections, and drag in a
+// section to change the plan's level. CPTs show as dots in the plan and, in the sections, as one qc
+// profile per GeoTOP column they cross: the median of the column's CPTs in a band from their 10th to
+// their 90th percentile. A CPT under the pointer in the plan shows its own qc. The voxels are GeoTOP's
+// or smaller cells of them (the cell trait), coloured by their simulation domain, stratigraphic unit,
+// lithology class or a value (the values trait), whichever color_modes offers.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
@@ -15,14 +16,19 @@ const RIGHT = 8;
 const MAX_PLAN = 560;
 const COLUMN = 100; // m, GeoTOP's columns
 const VOXEL = 0.5; // m, GeoTOP's voxel height
-const QC_METRES = 2.5; // m along a section per MPa of qc: a column is 40 MPa wide
+const QC_METRES = 2.5; // m along a section per MPa of qc: a GeoTOP column is 40 MPa wide
 const NOT_SIMULATED = "#e8e8e8";
 const RED = "#d62728";
 const BLUE = "#1f77b4";
 const CPT_BLUE = "#08519c";
 const CPT_PICK_PX = 6;
-/** What the voxels can be coloured by, with its button's label */
-const COLOR_BY = { domain: "Simulation domain", unit: "Stratigraphic unit", lithology: "Lithology class" };
+/** What the voxels can be coloured by, with its button's label; "value" takes value_scale's label */
+const COLOR_BY = { domain: "Simulation domain", unit: "Stratigraphic unit", lithology: "Lithology class", value: "Value" };
+/** Colour schemes for values, from low to high */
+const SCHEMES = {
+  viridis: ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"],
+  oranges: ["#fff5eb", "#fee6ce", "#fdd0a2", "#fdae6b", "#fd8d3c", "#f16913", "#d94801", "#a63603", "#7f2704"],
+};
 
 function ticks(min, max, target) {
   const raw = (max - min) / target;
@@ -36,9 +42,9 @@ function ticks(min, max, target) {
 }
 
 /**
- * One qc profile per column for the CPTs in a section: per level, the median qc of the column's
- * CPTs and their 10th and 90th percentiles, from the top down. axis is the coordinate along the
- * section.
+ * One qc profile per GeoTOP column for the CPTs in a section: per level, the median qc of the
+ * column's CPTs and their 10th and 90th percentiles, from the top down. axis is the coordinate along
+ * the section.
  */
 function profiles(cpts, axis) {
   const columns = new Map();
@@ -76,27 +82,46 @@ function wrap(ctx, text, width) {
   return line ? [...lines, line] : lines;
 }
 
+/** A value's colour on a scale {min, max, log, scheme}, by linear interpolation between the scheme's colours */
+function scaleColor(scale) {
+  const stops = (SCHEMES[scale.scheme] ?? SCHEMES.viridis).map((hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16)));
+  const position = scale.log
+    ? (value) => (Math.log(value) - Math.log(scale.min)) / (Math.log(scale.max) - Math.log(scale.min))
+    : (value) => (value - scale.min) / (scale.max - scale.min);
+  return (value) => {
+    if (!Number.isFinite(value) || (scale.log && value <= 0)) {
+      return NOT_SIMULATED;
+    }
+    const t = Math.min(Math.max(position(value), 0), 1) * (stops.length - 1);
+    const k = Math.min(Math.floor(t), stops.length - 2);
+    const rgb = stops[k].map((low, c) => Math.round(low + (stops[k + 1][c] - low) * (t - k)));
+    return `rgb(${rgb.join(",")})`;
+  };
+}
+
 function render({ model, el }) {
   const root = document.createElement("div");
   root.style.cssText = "font: 12px sans-serif; user-select: none; width: 100%; color: #333;";
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "display: block; touch-action: none; background: white;";
   const legend = document.createElement("div");
-  legend.style.cssText = `display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0 ${LEFT}px;`;
-  // Buttons to colour the voxels by their simulation domain, stratigraphic unit or lithology class
+  legend.style.cssText = `display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 6px 0 0 ${LEFT}px;`;
+  // Buttons to colour the voxels by what color_modes offers
   const toolbar = document.createElement("div");
   toolbar.style.cssText = `display: flex; align-items: center; gap: 6px; margin: 0 0 6px ${LEFT}px;`;
-  const buttons = Object.entries(COLOR_BY).map(([mode, label]) => {
-    const button = document.createElement("button");
-    button.textContent = label;
-    button.addEventListener("click", () => {
-      model.set("color_by", mode);
-      model.save_changes();
+  let buttons = [];
+  function fillToolbar() {
+    const modes = model.get("color_modes") ?? ["domain", "unit", "lithology"];
+    buttons = modes.map((mode) => {
+      const button = document.createElement("button");
+      button.textContent = mode === "value" ? (model.get("value_scale")?.label ?? COLOR_BY.value) : COLOR_BY[mode];
+      button.addEventListener("click", () => {
+        model.set("color_by", mode);
+        model.save_changes();
+      });
+      return [mode, button];
     });
-    return [mode, button];
-  });
-  toolbar.append("Colour by", ...buttons.map(([, button]) => button));
-  function styleButtons() {
+    toolbar.replaceChildren("Colour by", ...buttons.map(([, button]) => button));
     for (const [mode, button] of buttons) {
       const on = model.get("color_by") === mode;
       button.style.cssText =
@@ -110,26 +135,39 @@ function render({ model, el }) {
 
   let grid = null;
   let layout = null;
+  let values = null;
   let hover = null;
   let hoverCpt = null;
   let dragging = null;
 
-  // The voxels by position, and the model's extent: x and y are a column's south-west corner, z a
-  // voxel's centre
+  // The voxels by position, their size and levels, and the model's extent: x and y are a voxel's
+  // south-west corner, z its centre
   function index() {
     const voxels = model.get("voxels");
+    const cell = model.get("cell") ?? {};
+    const [dx, dy, dz] = [cell.x ?? COLUMN, cell.y ?? COLUMN, cell.z ?? VOXEL];
     const at = new Map();
+    const levels = new Set();
     const extent = { xmin: Infinity, xmax: -Infinity, ymin: Infinity, ymax: -Infinity, zmin: Infinity, zmax: -Infinity };
     voxels.forEach(([x, y, z], i) => {
       at.set(`${x},${y},${z}`, i);
+      levels.add(z);
       extent.xmin = Math.min(extent.xmin, x);
-      extent.xmax = Math.max(extent.xmax, x + COLUMN);
+      extent.xmax = Math.max(extent.xmax, x + dx);
       extent.ymin = Math.min(extent.ymin, y);
-      extent.ymax = Math.max(extent.ymax, y + COLUMN);
-      extent.zmin = Math.min(extent.zmin, z - VOXEL / 2);
-      extent.zmax = Math.max(extent.zmax, z + VOXEL / 2);
+      extent.ymax = Math.max(extent.ymax, y + dy);
+      extent.zmin = Math.min(extent.zmin, z - dz / 2);
+      extent.zmax = Math.max(extent.zmax, z + dz / 2);
     });
-    grid = { voxels, at, ...extent };
+    grid = { voxels, at, dx, dy, dz, levels: [...levels].sort((a, b) => a - b), ...extent };
+  }
+
+  // The values as numbers per voxel, from float32 bytes; null without values
+  function readValues() {
+    const bytes = model.get("values");
+    values = bytes?.byteLength
+      ? new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+      : null;
   }
 
   // The panels in px: the plan at one scale for x and y, the sections SECTION px deep
@@ -161,8 +199,12 @@ function render({ model, el }) {
   const yAt = (py) => grid.ymax - (py - layout.plan.y) / layout.s;
   const zAtTop = (py) => grid.zmax - ((py - layout.top.y) / layout.top.h) * (grid.zmax - grid.zmin);
   const zAtSide = (px) => grid.zmin + ((px - layout.side.x) / layout.side.w) * (grid.zmax - grid.zmin);
-  const column = (value) => Math.floor(value / COLUMN) * COLUMN;
-  const level = (z) => Math.round(z / VOXEL) * VOXEL;
+  // The south-west corner of the voxel a coordinate lies in, along x or y
+  const cellX = (x) => grid.xmin + Math.floor((x - grid.xmin) / grid.dx) * grid.dx;
+  const cellY = (y) => grid.ymin + Math.floor((y - grid.ymin) / grid.dy) * grid.dy;
+  const geotopColumn = (value) => Math.floor(value / COLUMN) * COLUMN;
+  // The voxels' level nearest z
+  const level = (z) => grid.levels.reduce((best, candidate) => (Math.abs(candidate - z) < Math.abs(best - z) ? candidate : best));
   const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
   function line(x1, y1, x2, y2) {
@@ -227,6 +269,7 @@ function render({ model, el }) {
       return;
     }
     const { s, top, plan, side, corner } = layout;
+    const { dx, dy, dz } = grid;
     const x0 = model.get("x");
     const y0 = model.get("y");
     const z0 = model.get("z");
@@ -241,35 +284,38 @@ function render({ model, el }) {
 
     // The voxels: in the plan those at the level, in the sections those in their row and column.
     // A fraction of a px more than their size closes the seams between them.
-    const cell = COLUMN * s;
-    const topVoxel = (VOXEL / (grid.zmax - grid.zmin)) * top.h;
-    const sideVoxel = (VOXEL / (grid.zmax - grid.zmin)) * side.w;
+    const [width, depth] = [dx * s, dy * s];
+    const topVoxel = (dz / (grid.zmax - grid.zmin)) * top.h;
+    const sideVoxel = (dz / (grid.zmax - grid.zmin)) * side.w;
     grid.voxels.forEach(([x, y, z], i) => {
+      if (z !== z0 && y !== y0 && x !== x0) {
+        return;
+      }
       ctx.fillStyle = color(i);
       if (z === z0) {
-        ctx.fillRect(X(x), Y(y + COLUMN), cell + 0.5, cell + 0.5);
+        ctx.fillRect(X(x), Y(y + dy), width + 0.5, depth + 0.5);
       }
       if (y === y0) {
-        ctx.fillRect(X(x), topZ(z + VOXEL / 2), cell + 0.5, topVoxel + 0.5);
+        ctx.fillRect(X(x), topZ(z + dz / 2), width + 0.5, topVoxel + 0.5);
       }
       if (x === x0) {
-        ctx.fillRect(sideZ(z - VOXEL / 2), Y(y + COLUMN), sideVoxel + 0.5, cell + 0.5);
+        ctx.fillRect(sideZ(z - dz / 2), Y(y + dy), sideVoxel + 0.5, depth + 0.5);
       }
     });
 
     // GeoTOP's columns in the plan
     ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
     ctx.lineWidth = 0.5;
-    for (let x = grid.xmin; x <= grid.xmax; x += COLUMN) {
+    for (let x = geotopColumn(grid.xmin); x <= grid.xmax; x += COLUMN) {
       line(X(x), plan.y, X(x), plan.y + plan.h);
     }
-    for (let y = grid.ymin; y <= grid.ymax; y += COLUMN) {
+    for (let y = geotopColumn(grid.ymin); y <= grid.ymax; y += COLUMN) {
       line(plan.x, Y(y), plan.x + plan.w, Y(y));
     }
 
     // Where the sections run in the plan, and where they cross each other in the sections
-    const cx = X(x0 + COLUMN / 2);
-    const cy = Y(y0 + COLUMN / 2);
+    const cx = X(x0 + dx / 2);
+    const cy = Y(y0 + dy / 2);
     ctx.strokeStyle = BLUE;
     ctx.lineWidth = 2;
     line(plan.x, cy, plan.x + plan.w, cy);
@@ -281,12 +327,12 @@ function render({ model, el }) {
     ctx.setLineDash([]);
 
     // The CPTs: dots in the plan, black in the sections' row and column. In the top section qc
-    // runs east from a column's west edge, in the side section north from its south edge.
+    // runs east from a GeoTOP column's west edge, in the side section north from its south edge.
     const cpts = model.get("cpts");
-    const inRow = cpts.filter((cpt) => column(cpt.y) === y0);
-    const inColumn = cpts.filter((cpt) => column(cpt.x) === x0);
+    const inRow = cpts.filter((cpt) => cellY(cpt.y) === y0);
+    const inColumn = cpts.filter((cpt) => cellX(cpt.x) === x0);
     for (const cpt of cpts) {
-      const crossed = column(cpt.y) === y0 || column(cpt.x) === x0;
+      const crossed = cellY(cpt.y) === y0 || cellX(cpt.x) === x0;
       dot(X(cpt.x), Y(cpt.y), crossed ? 2.5 : 1.8, crossed ? "#000" : "rgba(0, 0, 0, 0.45)");
     }
     const qcPx = QC_METRES * s;
@@ -303,16 +349,16 @@ function render({ model, el }) {
       }
     });
 
-    // The CPT under the pointer in the plan: its own qc, in the sections that cross its column
+    // The CPT under the pointer in the plan: its own qc, in the sections that cross it
     const hovered = cpts[hoverCpt];
     if (hovered) {
       dot(X(hovered.x), Y(hovered.y), 4, CPT_BLUE, "white");
       const trace = hovered.z.map((z, k) => ({ z, p50: hovered.qc[k] }));
-      if (column(hovered.y) === y0) {
-        clipped(top, () => drawTrace(trace, atTop(column(hovered.x))));
+      if (cellY(hovered.y) === y0) {
+        clipped(top, () => drawTrace(trace, atTop(geotopColumn(hovered.x))));
       }
-      if (column(hovered.x) === x0) {
-        clipped(side, () => drawTrace(trace, atSide(column(hovered.y))));
+      if (cellX(hovered.x) === x0) {
+        clipped(side, () => drawTrace(trace, atSide(geotopColumn(hovered.y))));
       }
     }
 
@@ -375,9 +421,9 @@ function render({ model, el }) {
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     const lines = [
-      `Plan at z = ${z0.toFixed(1)} m NAP`,
-      `W–E section at y = ${y0}–${y0 + COLUMN}`,
-      `S–N section at x = ${x0}–${x0 + COLUMN}`,
+      `Plan at z = ${z0.toFixed(dz < VOXEL ? 2 : 1)} m NAP`,
+      `W–E section at y = ${y0}–${y0 + dy}`,
+      `S–N section at x = ${x0}–${x0 + dx}`,
     ];
     if (hovered) {
       lines.push(
@@ -394,10 +440,11 @@ function render({ model, el }) {
       lines.push(
         "",
         domains[domainOf[hover]]?.name ?? "not simulated",
-        ...wrap(ctx, model.get("units")[unit].name, corner.w - 12),
-        model.get("lithologies")[lithology].name,
-        `x ${x}–${x + COLUMN}, y ${y}–${y + COLUMN}`,
-        `z ${z.toFixed(1)} m NAP`,
+        ...(values ? [`${model.get("value_scale")?.label ?? "value"}: ${values[hover].toPrecision(3)}`] : []),
+        ...wrap(ctx, model.get("units")[unit]?.name ?? "", corner.w - 12),
+        model.get("lithologies")[lithology]?.name ?? "",
+        `x ${x}–${x + dx}, y ${y}–${y + dy}`,
+        `z ${z.toFixed(dz < VOXEL ? 2 : 1)} m NAP`,
       );
     }
     lines.forEach((text, k) => {
@@ -406,15 +453,20 @@ function render({ model, el }) {
     });
   }
 
-  // Each voxel's colour: its domain's (grey where it is not simulated), its stratigraphic unit's or
-  // its lithology class's
+  // Each voxel's colour: its domain's (grey where it is not simulated), its stratigraphic unit's,
+  // its lithology class's or its value's on value_scale
   function voxelColor() {
     const voxels = grid.voxels;
-    if (model.get("color_by") === "unit") {
+    const colorBy = model.get("color_by");
+    if (colorBy === "value" && values) {
+      const color = scaleColor(model.get("value_scale"));
+      return (i) => color(values[i]);
+    }
+    if (colorBy === "unit") {
       const units = model.get("units");
       return (i) => units[voxels[i][3]].color;
     }
-    if (model.get("color_by") === "lithology") {
+    if (colorBy === "lithology") {
       const lithologies = model.get("lithologies");
       return (i) => lithologies[voxels[i][4]].color;
     }
@@ -423,39 +475,59 @@ function render({ model, el }) {
     return (i) => domains[domainOf[i]]?.color ?? NOT_SIMULATED;
   }
 
-  // The classes of what the voxels are coloured by; a stratigraphic unit by its code, with its
-  // name on hover
+  // A colour bar from the scale's minimum to its maximum, with ticks at both ends and in between
+  function colorBar(scale) {
+    const bar = document.createElement("span");
+    const color = scaleColor(scale);
+    const at = (t) => (scale.log ? scale.min * (scale.max / scale.min) ** t : scale.min + (scale.max - scale.min) * t);
+    const gradient = [0, 0.25, 0.5, 0.75, 1].map((t) => `${color(at(t))} ${t * 100}%`).join(", ");
+    bar.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+    const strip = document.createElement("span");
+    strip.style.cssText = `display: inline-block; width: 220px; height: 12px; border: 1px solid #bbb; background: linear-gradient(to right, ${gradient});`;
+    const label = (value) => Number(value.toPrecision(3)).toString();
+    bar.append(scale.label ?? "", ` ${label(scale.min)}`, strip, `${label(scale.max)}`, scale.log ? " (logarithmic)" : "");
+    return bar;
+  }
+
+  // The classes or colour bar of what the voxels are coloured by; a stratigraphic unit by its code,
+  // with its name on hover
   function fillLegend() {
-    const classes = {
-      unit: model.get("units").map(({ code, name, color }) => ({ name: code, title: name, color })),
-      lithology: model.get("lithologies"),
-    }[model.get("color_by")] ?? [...model.get("domains"), { name: "not simulated", color: NOT_SIMULATED }];
-    const items = classes.map(({ name, title, color }) => {
-      const item = document.createElement("span");
-      const swatch = document.createElement("span");
-      swatch.style.cssText = `display: inline-block; width: 12px; height: 12px; background: ${color}; vertical-align: middle; margin-right: 4px; border: 1px solid #bbb;`;
-      item.append(swatch, name);
-      item.title = title ?? name;
-      return item;
-    });
+    const colorBy = model.get("color_by");
+    let items;
+    if (colorBy === "value" && values) {
+      items = [colorBar(model.get("value_scale"))];
+    } else {
+      const classes = {
+        unit: model.get("units").map(({ code, name, color }) => ({ name: code, title: name, color })),
+        lithology: model.get("lithologies"),
+      }[colorBy] ?? [...model.get("domains"), { name: "not simulated", color: NOT_SIMULATED }];
+      items = classes.map(({ name, title, color }) => {
+        const item = document.createElement("span");
+        const swatch = document.createElement("span");
+        swatch.style.cssText = `display: inline-block; width: 12px; height: 12px; background: ${color}; vertical-align: middle; margin-right: 4px; border: 1px solid #bbb;`;
+        item.append(swatch, name);
+        item.title = title ?? name;
+        return item;
+      });
+    }
     const cpt = document.createElement("span");
     cpt.textContent =
-      `● CPT. In the sections, per column: the median qc of its CPTs, in a band from their 10th to ` +
-      `90th percentile (${COLUMN / QC_METRES} MPa per column width). Hover over a CPT in the plan for its own qc.`;
+      `● CPT. In the sections, per GeoTOP column: the median qc of its CPTs, in a band from their 10th ` +
+      `to 90th percentile (${COLUMN / QC_METRES} MPa per column width). Hover over a CPT in the plan for its own qc.`;
     legend.replaceChildren(...items, cpt);
   }
 
-  // The panel, column and level under the pointer
+  // The panel, voxel and level under the pointer
   function locate(px, py) {
     const inside = (panel) => px >= panel.x && px <= panel.x + panel.w && py >= panel.y && py <= panel.y + panel.h;
     if (inside(layout.plan)) {
-      return { panel: "plan", x: column(xAt(px)), y: column(yAt(py)), z: model.get("z") };
+      return { panel: "plan", x: cellX(xAt(px)), y: cellY(yAt(py)), z: model.get("z") };
     }
     if (inside(layout.top)) {
-      return { panel: "top", x: column(xAt(px)), y: model.get("y"), z: level(zAtTop(py)) };
+      return { panel: "top", x: cellX(xAt(px)), y: model.get("y"), z: level(zAtTop(py)) };
     }
     if (inside(layout.side)) {
-      return { panel: "side", x: model.get("x"), y: column(yAt(py)), z: level(zAtSide(px)) };
+      return { panel: "side", x: model.get("x"), y: cellY(yAt(py)), z: level(zAtSide(px)) };
     }
     return null;
   }
@@ -473,16 +545,15 @@ function render({ model, el }) {
     const bounds = canvas.getBoundingClientRect();
     const px = event.clientX - bounds.left;
     const py = event.clientY - bounds.top;
-    const zLimits = [grid.zmin + VOXEL / 2, grid.zmax - VOXEL / 2];
     if (dragging === "plan") {
       set({
-        x: clamp(column(xAt(px)), grid.xmin, grid.xmax - COLUMN),
-        y: clamp(column(yAt(py)), grid.ymin, grid.ymax - COLUMN),
+        x: clamp(cellX(xAt(px)), grid.xmin, grid.xmax - grid.dx),
+        y: clamp(cellY(yAt(py)), grid.ymin, grid.ymax - grid.dy),
       });
     } else if (dragging === "top") {
-      set({ z: clamp(level(zAtTop(py)), ...zLimits) });
+      set({ z: level(zAtTop(py)) });
     } else if (dragging === "side") {
-      set({ z: clamp(level(zAtSide(px)), ...zLimits) });
+      set({ z: level(zAtSide(px)) });
     }
     const spot = locate(px, py);
     canvas.style.cursor = { plan: "move", top: "ns-resize", side: "ew-resize" }[dragging ?? spot?.panel] ?? "default";
@@ -532,22 +603,30 @@ function render({ model, el }) {
   for (const name of ["x", "y", "z", "domain_of", "cpts"]) {
     model.on(`change:${name}`, draw);
   }
-  for (const name of ["domains", "units", "lithologies", "color_by"]) {
+  for (const name of ["domains", "units", "lithologies", "color_by", "color_modes", "value_scale"]) {
     model.on(`change:${name}`, () => {
-      styleButtons();
+      fillToolbar();
       fillLegend();
       draw();
     });
   }
-  model.on("change:voxels", () => {
-    index();
-    place();
+  model.on("change:values", () => {
+    readValues();
+    fillLegend();
     draw();
   });
+  for (const name of ["voxels", "cell"]) {
+    model.on(`change:${name}`, () => {
+      index();
+      place();
+      draw();
+    });
+  }
 
   index();
+  readValues();
   place();
-  styleButtons();
+  fillToolbar();
   fillLegend();
   draw();
   const resizing = new ResizeObserver(() => {

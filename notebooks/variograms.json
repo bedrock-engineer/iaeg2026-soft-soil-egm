@@ -75,7 +75,9 @@
           "slope": -0.006175735015696895
         }
       }
-    }
+    },
+    "saved": "2026-11-02T02:15:01",
+    "simulation_domains_saved": "2026-11-02T01:30:32"
   },
   "rf": {
     "transform": "none",
@@ -148,10 +150,10 @@
           "slope": -0.19567733421620803
         }
       }
-    }
+    },
+    "saved": "2026-11-02T01:48:38",
+    "simulation_domains_saved": "2026-11-02T01:30:32"
   },
-  "saved": "2026-11-02T02:15:01",
-  "simulation_domains_saved": "2026-11-02T01:30:32",
   "fs": {
     "transform": "log10",
     "detrend": true,
@@ -228,6 +230,8 @@
           "slope": -0.04341668304274858
         }
       }
-    }
+    },
+    "saved": "2026-11-02T02:15:01",
+    "simulation_domains_saved": "2026-11-02T01:30:32"
   }
 }

@@ -320,9 +320,11 @@ def fit(
 
 @app.cell
 def saved_variograms(Path, json, variograms_json):
-    # The variograms saved before, per parameter; empty until they are saved
+    # The variograms saved before, per parameter; empty until they are saved. Each parameter's carry when they
+    # were saved and the date of the simulation domains they were fitted on: SAVE_DATES.
+    SAVE_DATES = ("saved", "simulation_domains_saved")
     saved_variograms = json.loads(Path(variograms_json).read_text(encoding="utf-8")) if Path(variograms_json).exists() else {}
-    return (saved_variograms,)
+    return SAVE_DATES, saved_variograms
 
 
 @app.cell(hide_code=True)
@@ -599,7 +601,7 @@ def save_intro(mo):
     Saving pins the variograms of the chosen parameters for `04`. It writes them to
     `notebooks/variograms.json`, which is committed with the notebooks and keeps the saved variograms of
     the other parameters. Each parameter has its transform and, per domain, its model, nugget, length
-    scales and trend; the file has the date of the simulation domains they are based on.
+    scales and trend, with the date it was saved and the date of the simulation domains it was fitted on.
     """)
     return
 
@@ -639,6 +641,7 @@ def variogram_definition(
 
 @app.cell(hide_code=True)
 def saved_status(
+    SAVE_DATES,
     domain_definition,
     json,
     mo,
@@ -647,20 +650,23 @@ def saved_status(
     variogram_definitions,
 ):
     def _status(name):
-        """Whether the saved variograms of one parameter are the ones above, and of the saved simulation domains"""
+        """Whether the saved variograms of one parameter are the ones above, and fitted on the saved simulation
+        domains"""
         _saved = saved_variograms.get(name)
         if _saved is None:
             return mo.callout(mo.md(f"No variograms of {name} are saved yet."), kind="warn")
-        if _saved != json.loads(json.dumps(variogram_definitions[name])):
+        _when = _saved.get("saved", "an unknown date")
+        if {_k: _v for _k, _v in _saved.items() if _k not in SAVE_DATES} != json.loads(json.dumps(variogram_definitions[name])):
+            return mo.callout(mo.md(f"The variograms of {name} above differ from the ones saved on {_when}."), kind="warn")
+        if _saved.get("simulation_domains_saved") != domain_definition["saved"]:
             return mo.callout(
-                mo.md(f"The variograms of {name} above differ from the ones saved on {saved_variograms['saved']}."), kind="warn"
-            )
-        if saved_variograms["simulation_domains_saved"] != domain_definition["saved"]:
-            return mo.callout(
-                mo.md(f"The variograms of {name} above are the saved ones, but the simulation domains were saved again since."),
+                mo.md(
+                    f"The variograms of {name} above are the ones saved on {_when}, but those were fitted on other "
+                    "simulation domains. Save them again."
+                ),
                 kind="warn",
             )
-        return mo.callout(mo.md(f"The variograms of {name} above are the ones saved on {saved_variograms['saved']}."), kind="success")
+        return mo.callout(mo.md(f"The variograms of {name} above are the ones saved on {_when}."), kind="success")
 
 
     mo.vstack([_status(_name) for _name in parameters.value])
@@ -680,13 +686,14 @@ def save(
     variogram_definitions,
 ):
     mo.stop(not save_variograms.value)
+    # The chosen parameters' variograms, each with this save's date and the simulation domains' date, and the
+    # other parameters' variograms as they were saved before
+    _dates = {"saved": datetime.now().isoformat(timespec="seconds"), "simulation_domains_saved": domain_definition["saved"]}
     VARIOGRAMS_JSON.write_text(
         json.dumps(
             {
                 **{_key: _value for _key, _value in saved_variograms.items() if _key in PARAMETERS.values()},
-                "saved": datetime.now().isoformat(timespec="seconds"),
-                "simulation_domains_saved": domain_definition["saved"],
-                **variogram_definitions,
+                **{_name: {**_definition, **_dates} for _name, _definition in variogram_definitions.items()},
             },
             indent=2,
             ensure_ascii=False,
