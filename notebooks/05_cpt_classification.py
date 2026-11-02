@@ -210,7 +210,7 @@ def saved_runs(
     saved_runs = mo.ui.table(
         pl.DataFrame(_rows).sort("created", descending=True),
         selection="single",
-        initial_selection=[0],
+        initial_selection=[1],
         label="Saved runs with fs co-simulated with qc",
     )
     saved_runs
