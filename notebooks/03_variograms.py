@@ -105,20 +105,24 @@ def data_intro(mo):
 
 @app.cell(hide_code=True)
 def parameter(gs, mo):
-    # The CPT parameters, each with how it is transformed before its normal scores
+    # The CPT parameters, each with how it is transformed before its normal scores. Rf is not simulated, so
+    # it has no variograms: it follows from each realization's qc and fs.
     PARAMETERS = {
         "qc (cone resistance)": "qc",
         "fs (sleeve friction)": "fs",
-        "Rf (friction ratio)": "rf",
     }
     LOG_PARAMETERS = {"qc", "fs"}
-    UNITS = {"qc": "log₁₀ MPa", "fs": "log₁₀ MPa", "rf": "%"}
+    UNITS = {"qc": "log₁₀ MPa", "fs": "log₁₀ MPa"}
     # GSTools' covariance models a domain's variogram can follow; a model's len_scale is what 04 passes on
     MODELS = {
         "Exponential": gs.Exponential,
         "Spherical": gs.Spherical,
         "Gaussian": gs.Gaussian,
     }
+    # The least nugget of a model's fits and sliders. A Gaussian model without a nugget is so smooth that the
+    # simulation's kriging becomes unstable where CPTs close together differ at one depth: its scores then
+    # run far beyond the CPTs' values.
+    MIN_NUGGET = {"Gaussian": 0.05}
     parameters = mo.ui.multiselect(
         PARAMETERS, value=["qc (cone resistance)", "fs (sleeve friction)"], label="Parameters"
     )
@@ -126,7 +130,15 @@ def parameter(gs, mo):
         value=True, label="Remove each domain's linear trend with depth"
     )
     mo.hstack([parameters, detrend], justify="start", gap=2)
-    return LOG_PARAMETERS, MODELS, PARAMETERS, UNITS, detrend, parameters
+    return (
+        LOG_PARAMETERS,
+        MIN_NUGGET,
+        MODELS,
+        PARAMETERS,
+        UNITS,
+        detrend,
+        parameters,
+    )
 
 
 @app.cell
@@ -245,6 +257,7 @@ def experimental(HORIZONTAL_BIN, MAX_LAG, pl, scores):
 def fit(
     DOMAIN_COLORS,
     LEN_SCALE_BOUNDS,
+    MIN_NUGGET,
     MIN_PAIRS,
     MODELS,
     experimental,
@@ -265,6 +278,9 @@ def fit(
         _model.len_scale_bounds = len_scale_bounds
         try:
             _model.fit_variogram(_lags, _gamma, sill=1.0, nugget=nugget, weights=_pairs, loss="linear")
+            # A fitted nugget below the model's least nugget: fitted again with that nugget
+            if nugget is True and _model.nugget < MIN_NUGGET.get(model_name, 0.0):
+                _model.fit_variogram(_lags, _gamma, sill=1.0, nugget=MIN_NUGGET[model_name], weights=_pairs, loss="linear")
         except (RuntimeError, ValueError):
             return None
         _misfit = float(np.sqrt(np.average((_model.variogram(_lags) - _gamma) ** 2, weights=_pairs)))
@@ -278,7 +294,7 @@ def fit(
         _vertical = _fit(
             model_name, points.filter(pl.col("direction") == "vertical"), nugget=True, len_scale_bounds=LEN_SCALE_BOUNDS["vertical"]
         )
-        _nugget = _vertical[0] if _vertical else 0.0
+        _nugget = _vertical[0] if _vertical else MIN_NUGGET.get(model_name, 0.0)
         _horizontal = _fit(
             model_name, points.filter(pl.col("direction") == "horizontal"), nugget=_nugget, len_scale_bounds=LEN_SCALE_BOUNDS["horizontal"]
         )
@@ -395,6 +411,7 @@ def moved_sliders(mo):
 def variogram_controls(
     DOMAIN_COLORS,
     LEN_SCALE_BOUNDS,
+    MIN_NUGGET,
     detrend,
     fitted,
     get_moved_sliders,
@@ -434,10 +451,10 @@ def variogram_controls(
         return mo.ui.slider(start=bounds[0], stop=bounds[1], step=step, value=_value, show_value=True, label=label)
 
 
-    def _sliders(start):
+    def _sliders(start, model):
         return mo.ui.dictionary(
             {
-                "nugget": _slider([0.0, 1.0], 0.01, start["nugget"], "Nugget"),
+                "nugget": _slider([MIN_NUGGET.get(model, 0.0), 1.0], 0.01, start["nugget"], "Nugget"),
                 "vertical": _slider(LEN_SCALE_BOUNDS["vertical"], 0.05, start["vertical"], "Vertical length scale (m)"),
                 "horizontal": _slider(LEN_SCALE_BOUNDS["horizontal"], 5.0, start["horizontal"], "Horizontal length scale (m)"),
             }
@@ -460,7 +477,9 @@ def variogram_controls(
 
     variogram_controls = mo.ui.dictionary(
         {
-            _name: mo.ui.dictionary({_domain: _sliders(_start(_name, _domain)) for _domain in DOMAIN_COLORS})
+            _name: mo.ui.dictionary(
+                {_domain: _sliders(_start(_name, _domain), model_choice.value[_name][_domain]) for _domain in DOMAIN_COLORS}
+            )
             for _name in parameters.value
         },
         on_change=_remember,
