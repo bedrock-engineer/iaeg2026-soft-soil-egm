@@ -397,7 +397,9 @@ def view_intro(mo):
     the right, as in `04`: drag the red dot in the plan to move the sections, and drag in either section to
     change the plan's level. Color the cells by their most likely zone, by how likely that zone is, by the
     probability of one zone, by the median of Ic or its spread, P90 − P10, or by their simulation domain.
-    Hover over a cell for its zone and how likely it is.
+    Hover over a cell for its zone and how likely it is. Click a CPT in the plan to show it below the sections
+    in its column of cells: Ic of the realizations, the probabilities of the zones and the zones of the CPT
+    samples, which are classified the same way as the cells (section 3).
     """)
     return
 
@@ -427,6 +429,8 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         # no buttons of its own
         color_modes = traitlets.List([]).tag(sync=True)
         color_by = traitlets.Unicode("lithology").tag(sync=True)
+        # The CPT clicked in the plan, by its BRO ID
+        selected_cpt = traitlets.Unicode("").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
         y = traitlets.Float().tag(sync=True)
         z = traitlets.Float().tag(sync=True)
@@ -460,7 +464,7 @@ def view_controls(ZONE_LABELS, mo, zone_numbers, zone_probabilities):
     return color_by, probability_of
 
 
-@app.cell(hide_code=True)
+@app.cell(hide_code=True, expand_output=True)
 def cross_sections(
     CrossSections,
     DOMAIN_COLORS,
@@ -468,6 +472,7 @@ def cross_sections(
     ZONE_LABELS,
     cell_size,
     cells,
+    mo,
     most_likely,
     np,
     pl,
@@ -500,6 +505,8 @@ def cross_sections(
         .row(0)
     )
     _levels = cells["z"].unique().to_list()
+    # The CPT with the most samples is selected first
+    _selected = samples.group_by("bro_id").len().sort("len", "bro_id")["bro_id"][-1]
     section_view = CrossSections(
         voxels=_corners.drop("domain").rows(),
         cell=cell_size,
@@ -511,9 +518,11 @@ def cross_sections(
         x=_start[0],
         y=_start[1],
         z=min(_levels, key=lambda _z: abs(_z - samples["z"].median())),
+        selected_cpt=_selected,
     )
-    section_view
-    return (section_view,)
+    cross_sections = mo.ui.anywidget(section_view)
+    cross_sections
+    return cross_sections, section_view
 
 
 @app.cell(hide_code=True)
@@ -546,6 +555,131 @@ def section_values(
 
 
 @app.cell(hide_code=True)
+def selected_cpt(mo):
+    # The CPT clicked in the cross-sections
+    get_selected_cpt, set_selected_cpt = mo.state(None)
+    return get_selected_cpt, set_selected_cpt
+
+
+@app.cell(hide_code=True)
+def follow_selected_cpt(cross_sections, get_selected_cpt, set_selected_cpt):
+    # cross_sections also changes when the sections move; only another CPT goes on to what shows it
+    if cross_sections.selected_cpt != get_selected_cpt():
+        set_selected_cpt(cross_sections.selected_cpt)
+    return
+
+
+@app.cell(hide_code=True)
+def cpt_profile(
+    SOIL_BEHAVIOR_COLORS,
+    ZONE_LABELS,
+    alt,
+    cell_size,
+    cells,
+    get_selected_cpt,
+    ic,
+    measured,
+    mo,
+    np,
+    pl,
+    zone_numbers,
+    zone_probabilities,
+):
+    _bro_id = get_selected_cpt()
+    mo.stop(_bro_id is None, mo.md("Click a CPT in the plan above."))
+    _cpt = measured.filter(pl.col("bro_id") == _bro_id).with_columns(
+        label=pl.col("zone").replace_strict(ZONE_LABELS, return_dtype=pl.String), top=pl.col("z") + 0.25, bottom=pl.col("z") - 0.25
+    )
+    mo.stop(_cpt.is_empty(), mo.md(f"{_bro_id} has no samples with both qc and fs."))
+    _x, _y = _cpt["x"][0], _cpt["y"][0]
+    # The column of cells the CPT lies in
+    _column = cells.filter(
+        ((pl.col("x") - _x).abs() <= cell_size["x"] / 2) & ((pl.col("y") - _y).abs() <= cell_size["y"] / 2)
+    ).sort("z")
+    _index = _column["cell"].to_numpy()
+    _z = _column["z"].to_numpy()
+    _y_scale = alt.Scale(domain=[float(min(_z.min(), _cpt["z"].min())) - 0.5, float(max(_z.max(), _cpt["z"].max())) + 0.5])
+    _y_axis = alt.Y("z:Q", title="z (m NAP)", scale=_y_scale)
+    _band = _column.select("z").with_columns(*(pl.Series(_p, ic[_p][_index]) for _p in ("p10", "p50", "p90")))
+    _zone_scale = alt.Scale(domain=list(ZONE_LABELS.values()), range=[SOIL_BEHAVIOR_COLORS[_z] for _z in ZONE_LABELS])
+    # Ic, with the boundaries of zones 2 to 7
+    _ic_axis = alt.X("value:Q", title="Ic", scale=alt.Scale(domain=[1, 4.5]))
+    _rules = (
+        alt.Chart(pl.DataFrame({"value": [1.31, 2.05, 2.60, 2.95, 3.60]}))
+        .mark_rule(color="#bbbbbb", strokeDash=[3, 3])
+        .encode(x=_ic_axis)
+    )
+    _area = (
+        alt.Chart(_band)
+        .mark_area(opacity=0.25, color="#4c78a8", orient="horizontal")
+        .encode(x=alt.X("p10:Q", title="Ic", scale=alt.Scale(domain=[1, 4.5])), x2="p90:Q", y=_y_axis)
+    )
+    _median = alt.Chart(_band).mark_line(color="#1f3b63", strokeWidth=2).encode(x="p50:Q", y=_y_axis, order="z:Q")
+    _points = (
+        alt.Chart(_cpt.select("z", "label", value=pl.col("ic")))
+        .mark_circle(color="black", size=18)
+        .encode(x=_ic_axis, y=_y_axis, tooltip=["z", "label", alt.Tooltip("value:Q", format=".2f")])
+    )
+    # The probability of each zone per cell, stacked from zone 1 up
+    _stacked = np.cumsum(zone_probabilities[:, _index], axis=0)
+    _bars = pl.concat(
+        [
+            pl.DataFrame(
+                {
+                    "z": _z,
+                    "top": _z + cell_size["z"] / 2,
+                    "bottom": _z - cell_size["z"] / 2,
+                    "start": _stacked[_k] - zone_probabilities[_k, _index],
+                    "end": _stacked[_k],
+                    "probability": zone_probabilities[_k, _index],
+                    "label": ZONE_LABELS[int(_zone)],
+                }
+            )
+            for _k, _zone in enumerate(zone_numbers)
+        ]
+    ).filter(pl.col("probability") > 0)
+    _probabilities = (
+        alt.Chart(_bars)
+        .mark_rect()
+        .encode(
+            x=alt.X("start:Q", title="Probability of each zone", scale=alt.Scale(domain=[0, 1])),
+            x2="end:Q",
+            y=alt.Y("top:Q", title=None, scale=_y_scale),
+            y2="bottom:Q",
+            color=alt.Color("label:N", title="Zone", scale=_zone_scale, legend=alt.Legend(labelLimit=220)),
+            tooltip=["z", "label", alt.Tooltip("probability:Q", format=".0%")],
+        )
+    )
+    # The CPT's own zones
+    _measured = (
+        alt.Chart(_cpt)
+        .mark_rect()
+        .encode(
+            y=alt.Y("top:Q", title=None, scale=_y_scale),
+            y2="bottom:Q",
+            color=alt.Color("label:N", scale=_zone_scale),
+            tooltip=["z", "label"],
+        )
+        .properties(title="CPT", width=36, height=440)
+    )
+    mo.vstack(
+        [
+            mo.md(
+                f"{_bro_id} at x = {_x:.0f}, y = {_y:.0f}, in the column of cells of "
+                f"{cell_size['x']:g} × {cell_size['y']:g} m around it: Ic of the realizations from P10 to P90 with their "
+                "median and the CPT samples as dots, the probabilities of the zones, and the zones of the CPT samples."
+            ),
+            alt.hconcat(
+                (_rules + _area + _median + _points).properties(width=280, height=440),
+                _probabilities.properties(width=240, height=440),
+                _measured,
+            ).resolve_scale(y="shared"),
+        ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
 def check_intro(mo):
     mo.md(r"""
     ## 3 · Checks
@@ -555,7 +689,7 @@ def check_intro(mo):
     samples, of all realizations, and of the most likely zone, which leans towards the zones that are common
     in the domain. The table asks the same of the cells the CPT samples lie in. Since the realizations are
     conditioned on those samples, it shows that the classification keeps what the simulation honors, not how
-    well it predicts lithology away from the CPTs. The last chart shows one CPT in its column of cells.
+    well it predicts lithology away from the CPTs.
     """)
     return
 
@@ -597,10 +731,15 @@ def zone_shares(
     zone_probabilities,
 ):
     def _shares(source, frame):
-        return frame.select(pl.lit(source).alias("source"), "domain", "zone", "share")
+        return frame.select(
+            pl.lit(source).alias("source"), "domain", "zone", "share"
+        )
 
-
-    _samples = measured.group_by("domain", "zone").len().with_columns(share=pl.col("len") / pl.col("len").sum().over("domain"))
+    _samples = (
+        measured.group_by("domain", "zone")
+        .len()
+        .with_columns(share=pl.col("len") / pl.col("len").sum().over("domain"))
+    )
     _likely = (
         cells.select("domain")
         .with_columns(zone=pl.Series(most_likely, dtype=pl.Int64))
@@ -620,20 +759,47 @@ def zone_shares(
     )
     _order = ["CPT samples", "All realizations", "Most likely zone"]
     _frame = pl.concat(
-        [_shares(_order[0], _samples), _shares(_order[1], _realizations), _shares(_order[2], _likely)], how="vertical_relaxed"
-    ).with_columns(label=pl.col("zone").replace_strict(ZONE_LABELS, return_dtype=pl.String))
+        [
+            _shares(_order[0], _samples),
+            _shares(_order[1], _realizations),
+            _shares(_order[2], _likely),
+        ],
+        how="vertical_relaxed",
+    ).with_columns(
+        label=pl.col("zone").replace_strict(
+            ZONE_LABELS, return_dtype=pl.String
+        )
+    )
     alt.Chart(_frame.filter(pl.col("share") > 0)).mark_bar().encode(
-        x=alt.X("share:Q", title="Share of the domain", stack="normalize", axis=alt.Axis(format="%")),
+        x=alt.X(
+            "share:Q",
+            title="Share of the domain",
+            stack="normalize",
+            axis=alt.Axis(format="%"),
+        ),
         y=alt.Y("source:N", title=None, sort=_order),
         color=alt.Color(
             "label:N",
             title="Zone",
-            scale=alt.Scale(domain=list(ZONE_LABELS.values()), range=[SOIL_BEHAVIOR_COLORS[_z] for _z in ZONE_LABELS]),
+            scale=alt.Scale(
+                domain=list(ZONE_LABELS.values()),
+                range=[SOIL_BEHAVIOR_COLORS[_z] for _z in ZONE_LABELS],
+            ),
             legend=alt.Legend(labelLimit=220),
         ),
         order=alt.Order("zone:Q"),
-        row=alt.Row("domain:N", title=None, sort=list(DOMAIN_COLORS), header=alt.Header(labelAngle=0, labelAlign="left")),
-        tooltip=["domain", "source", "label", alt.Tooltip("share:Q", format=".1%")],
+        row=alt.Row(
+            "domain:N",
+            title=None,
+            sort=list(DOMAIN_COLORS),
+            header=alt.Header(labelAngle=0, labelAlign="left"),
+        ),
+        tooltip=[
+            "domain",
+            "source",
+            "label",
+            alt.Tooltip("share:Q", format=".1%"),
+        ],
     ).properties(width=400, height=54)
     return
 
@@ -717,122 +883,6 @@ def geotop_comparison(ZONE_LABELS, alt, cells, most_likely, pl):
             color=alt.condition("datum.share > 0.5", alt.value("white"), alt.value("#333333")),
         )
     ).properties(width=480, height=220)
-    return
-
-
-@app.cell(hide_code=True)
-def check_cpt(measured, mo, pl):
-    # The CPTs, starting with the one with the most samples
-    _cpts = measured.group_by("bro_id").agg(pl.len().alias("samples")).sort("bro_id")
-    check_cpt = mo.ui.dropdown(_cpts["bro_id"].to_list(), value=_cpts.sort("samples")["bro_id"][-1], label="CPT", searchable=True)
-    check_cpt
-    return (check_cpt,)
-
-
-@app.cell(hide_code=True)
-def cpt_profile(
-    SOIL_BEHAVIOR_COLORS,
-    ZONE_LABELS,
-    alt,
-    cell_size,
-    cells,
-    check_cpt,
-    ic,
-    measured,
-    mo,
-    np,
-    pl,
-    zone_numbers,
-    zone_probabilities,
-):
-    _cpt = measured.filter(pl.col("bro_id") == check_cpt.value).with_columns(
-        label=pl.col("zone").replace_strict(ZONE_LABELS, return_dtype=pl.String), top=pl.col("z") + 0.25, bottom=pl.col("z") - 0.25
-    )
-    _x, _y = _cpt["x"][0], _cpt["y"][0]
-    # The column of cells the CPT lies in
-    _column = cells.filter(
-        ((pl.col("x") - _x).abs() <= cell_size["x"] / 2) & ((pl.col("y") - _y).abs() <= cell_size["y"] / 2)
-    ).sort("z")
-    _index = _column["cell"].to_numpy()
-    _z = _column["z"].to_numpy()
-    _y_scale = alt.Scale(domain=[float(min(_z.min(), _cpt["z"].min())) - 0.5, float(max(_z.max(), _cpt["z"].max())) + 0.5])
-    _y_axis = alt.Y("z:Q", title="z (m NAP)", scale=_y_scale)
-    _band = _column.select("z").with_columns(*(pl.Series(_p, ic[_p][_index]) for _p in ("p10", "p50", "p90")))
-    _zone_scale = alt.Scale(domain=list(ZONE_LABELS.values()), range=[SOIL_BEHAVIOR_COLORS[_z] for _z in ZONE_LABELS])
-    # Ic, with the boundaries of zones 2 to 7
-    _ic_axis = alt.X("value:Q", title="Ic", scale=alt.Scale(domain=[1, 4.5]))
-    _rules = (
-        alt.Chart(pl.DataFrame({"value": [1.31, 2.05, 2.60, 2.95, 3.60]}))
-        .mark_rule(color="#bbbbbb", strokeDash=[3, 3])
-        .encode(x=_ic_axis)
-    )
-    _area = (
-        alt.Chart(_band)
-        .mark_area(opacity=0.25, color="#4c78a8", orient="horizontal")
-        .encode(x=alt.X("p10:Q", title="Ic", scale=alt.Scale(domain=[1, 4.5])), x2="p90:Q", y=_y_axis)
-    )
-    _median = alt.Chart(_band).mark_line(color="#1f3b63", strokeWidth=2).encode(x="p50:Q", y=_y_axis, order="z:Q")
-    _points = (
-        alt.Chart(_cpt.select("z", "label", value=pl.col("ic")))
-        .mark_circle(color="black", size=18)
-        .encode(x=_ic_axis, y=_y_axis, tooltip=["z", "label", alt.Tooltip("value:Q", format=".2f")])
-    )
-    # The probability of each zone per cell, stacked from zone 1 up
-    _stacked = np.cumsum(zone_probabilities[:, _index], axis=0)
-    _bars = pl.concat(
-        [
-            pl.DataFrame(
-                {
-                    "z": _z,
-                    "top": _z + cell_size["z"] / 2,
-                    "bottom": _z - cell_size["z"] / 2,
-                    "start": _stacked[_k] - zone_probabilities[_k, _index],
-                    "end": _stacked[_k],
-                    "probability": zone_probabilities[_k, _index],
-                    "label": ZONE_LABELS[int(_zone)],
-                }
-            )
-            for _k, _zone in enumerate(zone_numbers)
-        ]
-    ).filter(pl.col("probability") > 0)
-    _probabilities = (
-        alt.Chart(_bars)
-        .mark_rect()
-        .encode(
-            x=alt.X("start:Q", title="Probability of each zone", scale=alt.Scale(domain=[0, 1])),
-            x2="end:Q",
-            y=alt.Y("top:Q", title=None, scale=_y_scale),
-            y2="bottom:Q",
-            color=alt.Color("label:N", title="Zone", scale=_zone_scale, legend=alt.Legend(labelLimit=220)),
-            tooltip=["z", "label", alt.Tooltip("probability:Q", format=".0%")],
-        )
-    )
-    # The CPT's own zones
-    _measured = (
-        alt.Chart(_cpt)
-        .mark_rect()
-        .encode(
-            y=alt.Y("top:Q", title=None, scale=_y_scale),
-            y2="bottom:Q",
-            color=alt.Color("label:N", scale=_zone_scale),
-            tooltip=["z", "label"],
-        )
-        .properties(title="CPT", width=36, height=440)
-    )
-    mo.vstack(
-        [
-            mo.md(
-                f"{check_cpt.value} at x = {_x:.0f}, y = {_y:.0f}, in the column of cells of "
-                f"{cell_size['x']:g} × {cell_size['y']:g} m around it: Ic of the realizations from P10 to P90 with their "
-                "median and the CPT samples as dots, the probabilities of the zones, and the zones of the CPT samples."
-            ),
-            alt.hconcat(
-                (_rules + _area + _median + _points).properties(width=280, height=440),
-                _probabilities.properties(width=240, height=440),
-                _measured,
-            ).resolve_scale(y="shared"),
-        ]
-    )
     return
 
 
