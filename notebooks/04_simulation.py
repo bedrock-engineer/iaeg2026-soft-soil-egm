@@ -201,6 +201,10 @@ def settings_intro(mo):
     about 0.5–6 m: on whole voxels, the values of neighbouring voxels would be nearly unrelated. Each
     parameter is simulated on its own, so the realisations of qc and Rf are not correlated with each other
     beyond what the CPTs impose.
+
+    Simulate saves one run with the chosen parameters, unless the same run was saved before (see section
+    4). The table below the form lists the saved runs, the latest first; the selected run is shown in the
+    cross-sections and checks below. After Simulate, its run is selected.
     """)
     return
 
@@ -233,120 +237,12 @@ def settings(SIMULATED_PARAMETERS, gs, mo):
     return DEFAULT_SETTINGS, MODELS, PARAMETERS, UNITS, simulation_settings
 
 
-@app.cell
-def grid(DEFAULT_SETTINGS, mo, np, pl, simulation_settings, voxels):
-    # The settings of the last Simulate, or the defaults until it is pressed
-    settings = simulation_settings.value or DEFAULT_SETTINGS
-    mo.stop(not settings["parameters"], mo.md("Choose at least one parameter."))
-
-
-    def _offsets(name, voxel_size, cell_size, start):
-        """The offsets of the cell centres in a voxel from its coordinate, along one axis"""
-        return pl.DataFrame({name: start + (np.arange(round(voxel_size / cell_size)) + 0.5) * cell_size})
-
-
-    # The simulation cells: each voxel divided into cells of the horizontal resolution square and the vertical
-    # resolution high, at the cells' centres. A voxel's x and y are its south-west corner, its z its centre.
-    cells = (
-        voxels.rename({"x": "voxel_x", "y": "voxel_y", "z": "voxel_z"})
-        .join(_offsets("dx", 100.0, settings["horizontal"], 0.0), how="cross")
-        .join(_offsets("dy", 100.0, settings["horizontal"], 0.0), how="cross")
-        .join(_offsets("dz", 0.5, settings["vertical"], -0.25), how="cross")
-        .with_columns(
-            x=pl.col("voxel_x") + pl.col("dx"), y=pl.col("voxel_y") + pl.col("dy"), z=(pl.col("voxel_z") + pl.col("dz")).round(3)
-        )
-        .drop("dx", "dy", "dz")
-        .sort("domain", "z", "y", "x")
-        .with_row_index("cell")
-    )
-    # The regular grid around the cells, as the saved runs hold it, and each cell's position in it
-    grid_coords = {
-        "x": np.round(np.arange(cells["x"].min(), cells["x"].max() + settings["horizontal"] / 2, settings["horizontal"]), 3),
-        "y": np.round(np.arange(cells["y"].min(), cells["y"].max() + settings["horizontal"] / 2, settings["horizontal"]), 3),
-        "z": np.unique(cells["z"].to_numpy()),
-    }
-    grid_index = {_axis: np.searchsorted(_coords, cells[_axis].to_numpy()) for _axis, _coords in grid_coords.items()}
-    mo.md(
-        f"**{cells.height} simulation cells** of {settings['horizontal']:g} × {settings['horizontal']:g} m × "
-        f"{settings['vertical'] * 100:g} cm."
-    )
-    return cells, grid_coords, grid_index, settings
-
-
-@app.cell
-def conditioning(NormalDist, pl, samples, saved_variograms, settings):
-    _inverse_normal = NormalDist().inv_cdf
-
-
-    def _conditioning(name):
-        """The CPT samples of one parameter with their normal scores per domain, as in 03: the transformed
-        value without the domain's saved trend, ranked"""
-        _definition = saved_variograms[name]
-        _value = pl.col(name).log10() if _definition["transform"] == "log10" else pl.col(name)
-        _trends = pl.DataFrame(
-            [{"domain": _domain, **_variogram["trend"]} for _domain, _variogram in _definition["domains"].items()]
-        )
-        return (
-            samples.filter(pl.col(name) > 0)
-            .select("domain", "bro_id", "x", "y", "z", value=_value, parameter=pl.lit(name))
-            .join(_trends, on="domain")
-            .with_columns(residual=pl.col("value") - (pl.col("intercept") + pl.col("slope") * pl.col("z")))
-            .with_columns(
-                score=((pl.col("residual").rank("average").over("domain") - 0.5) / pl.len().over("domain")).map_elements(
-                    _inverse_normal, return_dtype=pl.Float64
-                )
-            )
-            .drop("intercept", "slope")
-        )
-
-
-    conditioning = pl.concat([_conditioning(_name) for _name in settings["parameters"]])
-    return (conditioning,)
-
-
-@app.cell
-def simulation_runs(
-    SAVE_DATES,
-    SIMULATIONS_DIR,
-    domain_definition,
-    hashlib,
-    json,
-    saved_variograms,
-    settings,
-):
-    # Raise when the simulation method changes, so that runs saved before are not reused
-    SIMULATION_VERSION = 1
-
-
-    def _run_definition(name):
-        """Everything that decides a parameter's realisations: the method's version, the grid, the number of
-        realisations and the seed, the parameter's saved variograms and the simulation domains"""
-        return {
-            "version": SIMULATION_VERSION,
-            "parameter": name,
-            "resolution": {"horizontal": settings["horizontal"], "vertical": settings["vertical"]},
-            "realisations": settings["realisations"],
-            "seed": settings["seed"],
-            "variograms": {_k: _v for _k, _v in saved_variograms[name].items() if _k not in SAVE_DATES},
-            "simulation_domains": {_k: _v for _k, _v in domain_definition.items() if _k != "saved"},
-        }
-
-
-    # Per parameter, its run's definition and the file it is saved in, named by a hash of the definition: a
-    # run with the same definition is read from its file instead of simulated again
-    simulation_runs = {}
-    for _name in settings["parameters"]:
-        _definition = _run_definition(_name)
-        _key = hashlib.sha256(json.dumps(_definition, sort_keys=True).encode()).hexdigest()[:12]
-        simulation_runs[_name] = {"definition": _definition, "path": SIMULATIONS_DIR / f"{_name}_{_key}.nc"}
-    return (simulation_runs,)
-
-
-@app.cell
+@app.cell(hide_code=True)
 def simulate(
     DOMAIN_COLORS,
     MODELS,
     PARAMETERS,
+    SIMULATIONS_DIR,
     UNITS,
     cdist,
     cells,
@@ -358,11 +254,13 @@ def simulate(
     json,
     mo,
     np,
+    parameter_definitions,
     pinvh,
     pl,
+    run_definition,
+    run_path,
     saved_variograms,
     settings,
-    simulation_runs,
     xr,
 ):
     def _variogram_model(name, domain):
@@ -474,66 +372,209 @@ def simulate(
             _bar.update()
         return _simulated
 
-    def _save(name, simulated, seconds):
-        """A parameter's realisations as NetCDF on the regular grid: the parameter per realisation, z, y and x
-        (NaN outside the simulation domains), each cell's domain, and the run's definition. Written to a
-        temporary file first, so that an interrupted save leaves no run behind."""
+    def _cube(simulated):
+        """Realisations × cells as realisations × z × y × x on the regular grid, NaN outside the simulation
+        domains"""
         _shape = tuple(len(grid_coords[_axis]) for _axis in ("z", "y", "x"))
-        _at = (grid_index["z"], grid_index["y"], grid_index["x"])
         _cube = np.full((settings["realisations"], *_shape), np.nan, dtype=np.float32)
-        _cube[:, *_at] = simulated
+        _cube[:, grid_index["z"], grid_index["y"], grid_index["x"]] = simulated
+        return _cube
+
+    def _saved_parameters():
+        """The parameters of the runs saved before, by their definition (as sorted JSON): the file holding them"""
+        _saved = {}
+        for _path in SIMULATIONS_DIR.glob("*.nc"):
+            with xr.open_dataset(_path, engine="h5netcdf") as _dataset:
+                for _name in json.loads(_dataset.attrs["definition"])["parameters"]:
+                    _saved[_dataset[_name].attrs["definition"]] = _path
+        return _saved
+
+    def _save(cubes, seconds):
+        """The run as NetCDF on the regular grid: each parameter per realisation, z, y and x with its
+        definition and its P10, P50 and P90 per z, y and x, each cell's domain, and the run's definition. Written to a temporary file first, so that
+        an interrupted save leaves no run behind."""
+        _shape = tuple(len(grid_coords[_axis]) for _axis in ("z", "y", "x"))
         _domains = np.full(_shape, -1, dtype=np.int8)
-        _domains[_at] = cells["domain"].replace_strict({_d: _i for _i, _d in enumerate(DOMAIN_COLORS)}, return_dtype=pl.Int8).to_numpy()
+        _domains[grid_index["z"], grid_index["y"], grid_index["x"]] = (
+            cells["domain"].replace_strict({_d: _i for _i, _d in enumerate(DOMAIN_COLORS)}, return_dtype=pl.Int8).to_numpy()
+        )
+        _variables = {
+            _name: (
+                ("realisation", "z", "y", "x"),
+                _cube,
+                {"units": UNITS[_name], "definition": json.dumps(parameter_definitions[_name], sort_keys=True, ensure_ascii=False)},
+            )
+            for _name, _cube in cubes.items()
+        }
+        # Each parameter's P10, P50 and P90 of the realisations per grid cell, so that what reads a run for
+        # its summary need not read the realisations
+        _inside = _domains >= 0
+        for _name, _cube in cubes.items():
+            _percentiles = np.full((3, *_shape), np.nan, dtype=np.float32)
+            _percentiles[:, _inside] = np.percentile(_cube[:, _inside], [10, 50, 90], axis=0)
+            for _p, _values in zip(("p10", "p50", "p90"), _percentiles):
+                _variables[f"{_name}_{_p}"] = (
+                    ("z", "y", "x"),
+                    _values,
+                    {"units": UNITS[_name], "description": f"P{_p[1:]} of the realisations of {_name}"},
+                )
         _dataset = xr.Dataset(
             {
-                name: (("realisation", "z", "y", "x"), _cube, {"units": UNITS[name]}),
+                **_variables,
                 "domain": (("z", "y", "x"), _domains, {"flag_values": list(range(len(DOMAIN_COLORS))), "flag_meanings": " ".join(DOMAIN_COLORS), "missing_value": -1}),
             },
             coords={"realisation": np.arange(1, settings["realisations"] + 1), **grid_coords},
             attrs={
-                "definition": json.dumps(simulation_runs[name]["definition"], ensure_ascii=False),
+                "definition": json.dumps(run_definition, ensure_ascii=False),
                 "crs": "EPSG:28992 (RD New), z in m NAP",
                 "created": datetime.now().isoformat(timespec="seconds"),
                 "seconds": round(seconds, 1),
             },
         )
-        _path = simulation_runs[name]["path"]
-        _path.parent.mkdir(parents=True, exist_ok=True)
-        _temporary = _path.with_suffix(".nc.tmp")
+        run_path.parent.mkdir(parents=True, exist_ok=True)
+        _temporary = run_path.with_suffix(".nc.tmp")
         _dataset.to_netcdf(
-            _temporary, engine="h5netcdf", encoding={name: {"zlib": True, "complevel": 4, "chunksizes": (1, *_shape)}}
+            _temporary,
+            engine="h5netcdf",
+            encoding={
+                _name: {"zlib": True, "complevel": 4, **({"chunksizes": (1, *_shape)} if _name in cubes else {})}
+                for _name in _variables
+            },
         )
-        _temporary.replace(_path)
+        _temporary.replace(run_path)
 
-    # The runs that are not saved yet, each simulated and saved as soon as it is done
-    _missing = [_name for _name, _run in simulation_runs.items() if not _run["path"].exists()]
+    # The run of the last Simulate: read when it was saved before; otherwise each parameter copied from a run
+    # saved before with the same parameter definition, or simulated, and the run saved as soon as it is done
     _report = []
-    with mo.status.progress_bar(
-        total=max(len(_missing) * len(DOMAIN_COLORS), 1),
-        title="Simulating",
-        show_eta=True,
-    ) as _bar:
-        for _name in _missing:
-            _started = datetime.now()
-            _simulated = _simulate(_name)
-            _seconds = (datetime.now() - _started).total_seconds()
-            _save(_name, _simulated, _seconds)
-            _report.append(f"Simulated {_name} in {_seconds:.0f} s and saved it to `{simulation_runs[_name]['path'].name}`.")
-    # The files the views read the realisations from
-    simulation_files = {_name: _run["path"] for _name, _run in simulation_runs.items()}
-    _report += [f"Read {_name} from `{simulation_runs[_name]['path'].name}`, saved before." for _name in simulation_runs if _name not in _missing]
-    mo.md("\n\n".join(_report))
-    return (simulation_files,)
+    if run_path.exists():
+        _report.append(f"This run was saved before, as `{run_path.name}`.")
+    else:
+        _saved = _saved_parameters()
+        _keys = {_name: json.dumps(_definition, sort_keys=True, ensure_ascii=False) for _name, _definition in parameter_definitions.items()}
+        _cubes, _seconds = {}, 0.0
+        with mo.status.progress_bar(
+            total=max(sum(_key not in _saved for _key in _keys.values()) * len(DOMAIN_COLORS), 1),
+            title="Simulating",
+            show_eta=True,
+        ) as _bar:
+            for _name, _key in _keys.items():
+                if _key in _saved:
+                    with xr.open_dataset(_saved[_key], engine="h5netcdf") as _dataset:
+                        _cubes[_name] = _dataset[_name].values
+                    _report.append(f"Copied {_name} from `{_saved[_key].name}`, simulated before with the same inputs.")
+                else:
+                    _started = datetime.now()
+                    _cubes[_name] = _cube(_simulate(_name))
+                    _seconds += (datetime.now() - _started).total_seconds()
+                    _report.append(f"Simulated {_name} in {(datetime.now() - _started).total_seconds():.0f} s.")
+        _save(_cubes, _seconds)
+        _report.append(f"Saved the run as `{run_path.name}`.")
+    # The run the table selects, and what was done for it, shown under the Simulate form
+    latest_run = run_path
+    simulation_report = " ".join(_report)
+    mo.md(simulation_report)
+    return (latest_run,)
 
 
-@app.cell
-def results(grid_index, simulation_files, xr):
-    # Per parameter, the realisations read from its saved run, as an array of realisations × cells
-    simulated = {}
-    for _name, _path in simulation_files.items():
+@app.cell(hide_code=True)
+def saved_runs(
+    SAVE_DATES,
+    SIMULATIONS_DIR,
+    domain_definition,
+    json,
+    latest_run,
+    mo,
+    pl,
+    saved_variograms,
+    xr,
+):
+    # The runs saved in SIMULATIONS_DIR, the latest first, with the run of the last Simulate selected. A run
+    # has current inputs when its variograms and simulation domains are the ones saved now.
+    _domains_now = {_k: _v for _k, _v in domain_definition.items() if _k != "saved"}
+
+
+    def _current(definition):
+        return definition["simulation_domains"] == _domains_now and all(
+            _variograms == {_k: _v for _k, _v in saved_variograms.get(_name, {}).items() if _k not in SAVE_DATES}
+            for _name, _variograms in definition["variograms"].items()
+        )
+
+
+    _rows = []
+    for _path in SIMULATIONS_DIR.glob("*.nc"):
         with xr.open_dataset(_path, engine="h5netcdf") as _dataset:
-            simulated[_name] = _dataset[_name].values[:, grid_index["z"], grid_index["y"], grid_index["x"]]
-    return (simulated,)
+            _definition = json.loads(_dataset.attrs["definition"])
+            _rows.append(
+                {
+                    "parameters": ", ".join(_definition["parameters"]),
+                    "horizontal (m)": _definition["resolution"]["horizontal"],
+                    "vertical (m)": _definition["resolution"]["vertical"],
+                    "realisations": _definition["realisations"],
+                    "seed": _definition["seed"],
+                    "current inputs": _current(_definition),
+                    "created": _dataset.attrs["created"],
+                    "minutes simulating": round(_dataset.attrs["seconds"] / 60, 1),
+                    "MB": round(_path.stat().st_size / 1e6, 1),
+                    "file": _path.name,
+                }
+            )
+    _runs = pl.DataFrame(_rows).sort("created", descending=True)
+    saved_runs = mo.ui.table(
+        _runs,
+        selection="single",
+        initial_selection=[_runs["file"].to_list().index(latest_run.name)],
+        page_size=10,
+        label="Saved runs",
+    )
+    saved_runs
+    return (saved_runs,)
+
+
+@app.cell(hide_code=True)
+def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
+    mo.stop(saved_runs.value.is_empty(), mo.md("Select a run in the table above."))
+    # The selected run: its definition, its cells (where the grid has a domain) and per parameter its
+    # realisations as realisations × cells and their statistics per cell
+    with xr.open_dataset(SIMULATIONS_DIR / saved_runs.value["file"][0], engine="h5netcdf") as _dataset:
+        run = json.loads(_dataset.attrs["definition"])
+        # The domain index of each grid cell; xarray reads its missing value, -1, as NaN
+        _domains = _dataset["domain"].fillna(-1).values.astype(int)
+        _names = np.array(_dataset["domain"].attrs["flag_meanings"].split())
+        _iz, _iy, _ix = np.nonzero(_domains >= 0)
+        simulated = {_name: _dataset[_name].values[:, _iz, _iy, _ix] for _name in run["parameters"]}
+        # Per parameter, the P10, P50 and P90 of its realisations per cell, saved with the run
+        statistics = {
+            _name: {_p: _dataset[f"{_name}_{_p}"].values[_iz, _iy, _ix] for _p in ("p10", "p50", "p90")}
+            for _name in run["parameters"]
+        }
+        _coords = {_axis: _dataset[_axis].values for _axis in ("x", "y", "z")}
+    # Whether each parameter was simulated as its log10
+    run_log = {_name: _variograms["transform"] == "log10" for _name, _variograms in run["variograms"].items()}
+    # Each cell with the stratigraphic unit and lithology class of the GeoTOP voxel it lies in (a voxel's x
+    # and y are its south-west corner, its z its centre)
+    run_cells = (
+        pl.DataFrame(
+            {
+                "x": _coords["x"][_ix],
+                "y": _coords["y"][_iy],
+                "z": _coords["z"][_iz],
+                "domain": _names[_domains[_iz, _iy, _ix]],
+            }
+        )
+        .with_row_index("cell")
+        .with_columns(
+            voxel_x=(pl.col("x") // 100) * 100, voxel_y=(pl.col("y") // 100) * 100, voxel_z=(pl.col("z") / 0.5).round() * 0.5
+        )
+        .join(
+            voxels.select(voxel_x="x", voxel_y="y", voxel_z="z", stratigraphic_unit="stratigraphic_unit", grondsoort="grondsoort"),
+            on=["voxel_x", "voxel_y", "voxel_z"],
+            how="left",
+            maintain_order="left",
+        )
+        .drop("voxel_x", "voxel_y", "voxel_z")
+        .with_columns(pl.col("stratigraphic_unit", "grondsoort").fill_null("unknown"))
+    )
+    return run, run_cells, run_log, simulated, statistics
 
 
 @app.cell(hide_code=True)
@@ -541,7 +582,7 @@ def view_intro(mo):
     mo.md(r"""
     ## 2 · The realisations
 
-    The cells from above at one level, with a west–east section above and a south–north section to the
+    The selected run's cells from above at one level, with a west–east section above and a south–north section to the
     right, as in `02`: drag the red dot in the plan to move the sections, and drag in either section to
     change the plan's level. Colour the cells by one realisation or a statistic of all realisations per cell
     (the median, P10, P90 or their spread), or by their simulation domain. In the sections, each GeoTOP
@@ -552,26 +593,22 @@ def view_intro(mo):
 
 
 @app.cell(hide_code=True)
-def statistics(PARAMETERS, mo, np, settings, simulated):
-    # Per parameter, the statistics of the realisations per cell
-    statistics = {
-        _name: dict(zip(("p10", "p50", "p90"), np.nanpercentile(_values, [10, 50, 90], axis=0)))
-        for _name, _values in simulated.items()
-    }
+def view_controls(PARAMETERS, mo, run, simulated):
+    # What the cross-sections show of the selected run
     _labels = {_name: _label for _label, _name in PARAMETERS.items()}
     view_controls = mo.ui.dictionary(
         {
             "parameter": mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter"),
             "shown": mo.ui.dropdown(
                 {"Median (P50)": "p50", "P10": "p10", "P90": "p90", "Spread (P90 against P10)": "spread"}
-                | {f"Realisation {_r + 1}": f"r{_r}" for _r in range(settings["realisations"])},
+                | {f"Realisation {_r + 1}": f"r{_r}" for _r in range(run["realisations"])},
                 value="Median (P50)",
                 label="Show",
             ),
         }
     )
     mo.hstack([view_controls["parameter"], view_controls["shown"]], justify="start", gap=2)
-    return statistics, view_controls
+    return (view_controls,)
 
 
 @app.cell(hide_code=True)
@@ -606,20 +643,20 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
 
 
 @app.cell(hide_code=True, expand_output=True)
-def cross_sections(CrossSections, DOMAIN_COLORS, cells, pl, samples, settings):
-    # Made once per simulation; section_values colours it. The stratigraphic units from the top down and the
+def cross_sections(CrossSections, DOMAIN_COLORS, pl, run, run_cells, samples):
+    # Made once per selected run; section_values colours it. The stratigraphic units from the top down and the
     # lithology classes alphabetically, for the cell under the pointer; their colours are not shown.
-    _units = cells.group_by("stratigraphic_unit").agg(pl.max("z")).sort("z", descending=True)["stratigraphic_unit"].to_list()
-    _lithologies = cells["grondsoort"].unique().sort().to_list()
+    _units = run_cells.group_by("stratigraphic_unit").agg(pl.max("z")).sort("z", descending=True)["stratigraphic_unit"].to_list()
+    _lithologies = run_cells["grondsoort"].unique().sort().to_list()
     _cpts = samples.sort("z", descending=True).group_by("bro_id", maintain_order=True).agg(pl.first("x", "y"), "z", "qc")
-    _size = {"x": settings["horizontal"], "y": settings["horizontal"], "z": settings["vertical"]}
-    _corners = cells.select(
+    _size = {"x": run["resolution"]["horizontal"], "y": run["resolution"]["horizontal"], "z": run["resolution"]["vertical"]}
+    _corners = run_cells.select(
         (pl.col("x") - _size["x"] / 2).round(3),
         (pl.col("y") - _size["y"] / 2).round(3),
         "z",
         pl.col("stratigraphic_unit").replace_strict({_u: _i for _i, _u in enumerate(_units)}, return_dtype=pl.Int64),
         pl.col("grondsoort").replace_strict({_l: _i for _i, _l in enumerate(_lithologies)}, return_dtype=pl.Int64),
-        pl.col("domain").replace_strict({_d: _i for _i, _d in enumerate(DOMAIN_COLORS)}, return_dtype=pl.Int64),
+        pl.col("domain").replace_strict({_d: _i for _i, _d in enumerate(DOMAIN_COLORS)}, default=-1, return_dtype=pl.Int64),
     )
     # The sections start through the cell with the most CPTs, at the CPT samples' median level
     _origin = {_axis: _corners[_axis].min() for _axis in ("x", "y")}
@@ -633,7 +670,7 @@ def cross_sections(CrossSections, DOMAIN_COLORS, cells, pl, samples, settings):
         .sort("bro_id", descending=True)
         .row(0)
     )
-    _levels = cells["z"].unique().to_list()
+    _levels = run_cells["z"].unique().to_list()
     section_view = CrossSections(
         voxels=_corners.drop("domain").rows(),
         cell=_size,
@@ -654,7 +691,7 @@ def cross_sections(CrossSections, DOMAIN_COLORS, cells, pl, samples, settings):
 def section_values(
     UNITS,
     np,
-    saved_variograms,
+    run_log,
     section_view,
     simulated,
     statistics,
@@ -664,7 +701,7 @@ def section_values(
     # (P90 / P10 for log10 parameters, P90 − P10 otherwise), on a colour scale over its 2nd to 98th percentile,
     # logarithmic for log10 parameters and the spread of them
     _name, _shown = view_controls.value["parameter"], view_controls.value["shown"]
-    _log = saved_variograms[_name]["transform"] == "log10"
+    _log = run_log[_name]
     if _shown.startswith("r"):
         _values, _label = simulated[_name][int(_shown[1:])], f"{_name} realisation {int(_shown[1:]) + 1} ({UNITS[_name]})"
     elif _shown == "spread":
@@ -701,35 +738,32 @@ def check_intro(mo):
 def distribution(
     DOMAIN_COLORS,
     UNITS,
-    cells,
-    conditioning,
     mo,
     np,
     pl,
-    saved_variograms,
+    run_cells,
+    samples,
     simulated,
 ):
     def _percentiles(values):
         return dict(zip(("P10", "P50", "P90"), np.nanpercentile(values, [10, 50, 90])))
 
 
+    # Per parameter and domain of the selected run, the percentiles of the CPT samples and of all realisations
     _rows = []
     for _name in simulated:
-        _log = saved_variograms[_name]["transform"] == "log10"
-        for _domain in DOMAIN_COLORS:
-            _index = cells.filter(pl.col("domain") == _domain)["cell"].to_numpy()
-            _data = conditioning.filter((pl.col("parameter") == _name) & (pl.col("domain") == _domain))["value"].to_numpy()
-            _cpt = _percentiles(10**_data if _log else _data)
-            _sim = _percentiles(simulated[_name][:, _index])
+        for _domain in run_cells["domain"].unique(maintain_order=True):
+            _index = run_cells.filter(pl.col("domain") == _domain)["cell"].to_numpy()
+            _data = samples.filter((pl.col("domain") == _domain) & (pl.col(_name) > 0))[_name].to_numpy()
             _rows.append(
                 {"parameter": _name, "domain": _domain, "unit": UNITS[_name]}
-                | {f"CPTs {_k}": round(_v, 3) for _k, _v in _cpt.items()}
-                | {f"realisations {_k}": round(_v, 3) for _k, _v in _sim.items()}
+                | {f"CPTs {_k}": round(_v, 3) for _k, _v in _percentiles(_data).items()}
+                | {f"realisations {_k}": round(_v, 3) for _k, _v in _percentiles(simulated[_name][:, _index]).items()}
             )
     mo.ui.table(
         pl.DataFrame(_rows),
         selection=None,
-        style_cell=lambda _row, column, value: {"backgroundColor": DOMAIN_COLORS[value]} if column == "domain" else {},
+        style_cell=lambda _row, column, value: {"backgroundColor": DOMAIN_COLORS.get(value, "#cccccc")} if column == "domain" else {},
     )
     return
 
@@ -747,31 +781,31 @@ def check_cpt(mo, pl, samples):
 def cpt_check(
     UNITS,
     alt,
-    cells,
     check_cpt,
     mo,
     np,
     pl,
+    run,
+    run_cells,
+    run_log,
     samples,
-    saved_variograms,
-    settings,
     simulated,
     statistics,
     view_controls,
 ):
     _name = view_controls.value["parameter"]
-    _log = saved_variograms[_name]["transform"] == "log10"
+    _log = run_log[_name]
     _cpt = samples.filter(pl.col("bro_id") == check_cpt.value)
     _x, _y = _cpt["x"][0], _cpt["y"][0]
     # The column of cells the CPT lies in
-    _column = cells.filter(
-        ((pl.col("x") - _x).abs() <= settings["horizontal"] / 2) & ((pl.col("y") - _y).abs() <= settings["horizontal"] / 2)
+    _column = run_cells.filter(
+        ((pl.col("x") - _x).abs() <= run["resolution"]["horizontal"] / 2) & ((pl.col("y") - _y).abs() <= run["resolution"]["horizontal"] / 2)
     ).sort("z")
     _index = _column["cell"].to_numpy()
     _realisations = pl.DataFrame(
         {
-            "z": np.tile(_column["z"].to_numpy(), settings["realisations"]),
-            "realisation": np.repeat(np.arange(settings["realisations"]) + 1, len(_index)),
+            "z": np.tile(_column["z"].to_numpy(), run["realisations"]),
+            "realisation": np.repeat(np.arange(run["realisations"]) + 1, len(_index)),
             "value": simulated[_name][:, _index].ravel(),
         }
     )
@@ -796,7 +830,7 @@ def cpt_check(
     )
     mo.vstack(
         [
-            mo.md(f"{check_cpt.value} at x = {_x:.0f}, y = {_y:.0f}, in the column of cells of {settings['horizontal']:g} × {settings['horizontal']:g} m around it."),
+            mo.md(f"{check_cpt.value} at x = {_x:.0f}, y = {_y:.0f}, in the column of cells of {run['resolution']['horizontal']:g} × {run['resolution']['horizontal']:g} m around it."),
             (_area + _lines + _median + _points).properties(width=420, height=440),
         ]
     )
@@ -804,57 +838,134 @@ def cpt_check(
 
 
 @app.cell(hide_code=True)
-def runs_intro(mo):
+def simulation_intro(mo):
     mo.md(r"""
-    ## 4 · The saved runs
+    ## 4 · How a run is simulated and saved
 
-    Each run of a parameter is saved in `data/simulations/` as soon as it is simulated, as NetCDF: the
+    Simulate saves one run in `data/simulations/` as soon as it is done, as NetCDF: each chosen parameter's
     realisations on the regular grid (realisation × z × y × x, in RD New and m NAP, NaN outside the
-    simulation domains), each cell's domain, and the run's definition. Its name ends in a hash of that
-    definition (the parameter's variograms, the simulation domains, the resolution, the number of
-    realisations and the seed), so Simulate reads a run with the same definition instead of simulating it
-    again. The runs shown above are marked.
+    simulation domains) with their P10, P50 and P90 per cell, each cell's domain, and the run's definition: the parameters' variograms, the
+    simulation domains, the resolution, the number of realisations and the seed. Its name ends in a hash of
+    that definition, so pressing Simulate again with the same definition simulates nothing and selects the
+    run saved before. A parameter simulated before with the same definition, in another run, is copied
+    from it instead of simulated again.
     """)
     return
 
 
-@app.cell(hide_code=True)
-def saved_runs(
+@app.cell
+def grid(DEFAULT_SETTINGS, mo, np, pl, simulation_settings, voxels):
+    # The settings of the last Simulate, or the defaults until it is pressed
+    settings = simulation_settings.value or DEFAULT_SETTINGS
+    mo.stop(not settings["parameters"], mo.md("Choose at least one parameter."))
+
+
+    def _offsets(name, voxel_size, cell_size, start):
+        """The offsets of the cell centres in a voxel from its coordinate, along one axis"""
+        return pl.DataFrame({name: start + (np.arange(round(voxel_size / cell_size)) + 0.5) * cell_size})
+
+
+    # The simulation cells: each voxel divided into cells of the horizontal resolution square and the vertical
+    # resolution high, at the cells' centres. A voxel's x and y are its south-west corner, its z its centre.
+    cells = (
+        voxels.rename({"x": "voxel_x", "y": "voxel_y", "z": "voxel_z"})
+        .join(_offsets("dx", 100.0, settings["horizontal"], 0.0), how="cross")
+        .join(_offsets("dy", 100.0, settings["horizontal"], 0.0), how="cross")
+        .join(_offsets("dz", 0.5, settings["vertical"], -0.25), how="cross")
+        .with_columns(
+            x=pl.col("voxel_x") + pl.col("dx"), y=pl.col("voxel_y") + pl.col("dy"), z=(pl.col("voxel_z") + pl.col("dz")).round(3)
+        )
+        .drop("dx", "dy", "dz")
+        .sort("domain", "z", "y", "x")
+        .with_row_index("cell")
+    )
+    # The regular grid around the cells, as the saved runs hold it, and each cell's position in it
+    grid_coords = {
+        "x": np.round(np.arange(cells["x"].min(), cells["x"].max() + settings["horizontal"] / 2, settings["horizontal"]), 3),
+        "y": np.round(np.arange(cells["y"].min(), cells["y"].max() + settings["horizontal"] / 2, settings["horizontal"]), 3),
+        "z": np.unique(cells["z"].to_numpy()),
+    }
+    grid_index = {_axis: np.searchsorted(_coords, cells[_axis].to_numpy()) for _axis, _coords in grid_coords.items()}
+    mo.md(
+        f"**{cells.height} simulation cells** of {settings['horizontal']:g} × {settings['horizontal']:g} m × "
+        f"{settings['vertical'] * 100:g} cm."
+    )
+    return cells, grid_coords, grid_index, settings
+
+
+@app.cell
+def conditioning(NormalDist, pl, samples, saved_variograms, settings):
+    _inverse_normal = NormalDist().inv_cdf
+
+
+    def _conditioning(name):
+        """The CPT samples of one parameter with their normal scores per domain, as in 03: the transformed
+        value without the domain's saved trend, ranked"""
+        _definition = saved_variograms[name]
+        _value = pl.col(name).log10() if _definition["transform"] == "log10" else pl.col(name)
+        _trends = pl.DataFrame(
+            [{"domain": _domain, **_variogram["trend"]} for _domain, _variogram in _definition["domains"].items()]
+        )
+        return (
+            samples.filter(pl.col(name) > 0)
+            .select("domain", "bro_id", "x", "y", "z", value=_value, parameter=pl.lit(name))
+            .join(_trends, on="domain")
+            .with_columns(residual=pl.col("value") - (pl.col("intercept") + pl.col("slope") * pl.col("z")))
+            .with_columns(
+                score=((pl.col("residual").rank("average").over("domain") - 0.5) / pl.len().over("domain")).map_elements(
+                    _inverse_normal, return_dtype=pl.Float64
+                )
+            )
+            .drop("intercept", "slope")
+        )
+
+
+    conditioning = pl.concat([_conditioning(_name) for _name in settings["parameters"]])
+    return (conditioning,)
+
+
+@app.cell
+def simulation_runs(
+    PARAMETERS,
     SAVE_DATES,
     SIMULATIONS_DIR,
     domain_definition,
+    hashlib,
     json,
-    mo,
-    pl,
     saved_variograms,
-    simulation_files,
-    xr,
+    settings,
 ):
-    # The runs saved in SIMULATIONS_DIR, from their definitions
-    _rows = []
-    for _path in sorted(SIMULATIONS_DIR.glob("*.nc")):
-        with xr.open_dataset(_path, engine="h5netcdf") as _dataset:
-            _definition = json.loads(_dataset.attrs["definition"])
-            _rows.append(
-                {
-                    "shown": _path in simulation_files.values(),
-                    "parameter": _definition["parameter"],
-                    "horizontal (m)": _definition["resolution"]["horizontal"],
-                    "vertical (m)": _definition["resolution"]["vertical"],
-                    "realisations": _definition["realisations"],
-                    "seed": _definition["seed"],
-                    # Whether the run is of the variograms and simulation domains saved now
-                    "current inputs": _definition["variograms"]
-                    == {_k: _v for _k, _v in saved_variograms.get(_definition["parameter"], {}).items() if _k not in SAVE_DATES}
-                    and _definition["simulation_domains"] == {_k: _v for _k, _v in domain_definition.items() if _k != "saved"},
-                    "created": _dataset.attrs["created"],
-                    "minutes": round(_dataset.attrs["seconds"] / 60, 1),
-                    "MB": round(_path.stat().st_size / 1e6, 1),
-                    "file": _path.name,
-                }
-            )
-    mo.ui.table(pl.DataFrame(_rows), selection=None) if _rows else mo.md("No runs are saved yet.")
-    return
+    # Raise when the simulation method changes, so that runs saved before are not reused
+    SIMULATION_VERSION = 1
+
+
+    def _parameter_definition(name):
+        """Everything that decides a parameter's realisations: the method's version, the grid, the number of
+        realisations and the seed, the parameter's saved variograms and the simulation domains"""
+        return {
+            "version": SIMULATION_VERSION,
+            "parameter": name,
+            "resolution": {"horizontal": settings["horizontal"], "vertical": settings["vertical"]},
+            "realisations": settings["realisations"],
+            "seed": settings["seed"],
+            "variograms": {_k: _v for _k, _v in saved_variograms[name].items() if _k not in SAVE_DATES},
+            "simulation_domains": {_k: _v for _k, _v in domain_definition.items() if _k != "saved"},
+        }
+
+
+    # The run of the chosen parameters, in PARAMETERS' order: each parameter's definition, and the run's,
+    # whose hash names its file. A run with the same definition is not simulated again.
+    parameter_definitions = {
+        _name: _parameter_definition(_name) for _name in PARAMETERS.values() if _name in settings["parameters"]
+    }
+    run_definition = {
+        **{_k: _v for _k, _v in next(iter(parameter_definitions.values())).items() if _k not in ("parameter", "variograms")},
+        "parameters": list(parameter_definitions),
+        "variograms": {_name: _definition["variograms"] for _name, _definition in parameter_definitions.items()},
+    }
+    _key = hashlib.sha256(json.dumps(run_definition, sort_keys=True).encode()).hexdigest()[:12]
+    run_path = SIMULATIONS_DIR / f"{'-'.join(parameter_definitions)}_{_key}.nc"
+    return parameter_definitions, run_definition, run_path
 
 
 if __name__ == "__main__":
