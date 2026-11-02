@@ -4,6 +4,7 @@ import { Deck, Slide } from "@revealjs/react";
 import { useEffect, useRef } from "react";
 import type { RevealApi } from "reveal.js";
 import "reveal.js/reveal.css";
+import { Anywhere, Pipeline, Tools } from "./diagrams.tsx";
 import slides from "./slides.json" with { type: "json" };
 
 const keyboardCondition = (event: KeyboardEvent) =>
@@ -84,8 +85,8 @@ export const App = () => {
 
       <Slide className="content">
         <h2>{text.pipeline.title}</h2>
-        <div data-visual="pipeline" className="visual placeholder">
-          Pipeline diagram
+        <div data-visual="pipeline" className="visual">
+          <Pipeline />
         </div>
       </Slide>
 
@@ -125,15 +126,15 @@ export const App = () => {
       </Slide>
 
       <Beside id="close-geology">
-        <div className="placeholder">Cross-section</div>
+        <marimo-output value="closing_section" />
       </Beside>
 
       <Beside id="close-accessible">
-        <div className="placeholder">Logo diagram</div>
+        <Anywhere />
       </Beside>
 
       <Beside id="close-open">
-        <div className="placeholder">Open-source tools</div>
+        <Tools />
       </Beside>
 
       <Slide className="content">

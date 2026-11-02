@@ -92,7 +92,7 @@ def inputs(Path, bpl, json, mo, pl):
     SITE_URL = "https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/"
     NAVY = "#1b1464"
     # Chart text that reads from the back of the room
-    FONT = 20
+    FONT = 28
 
     DOMAIN_COLORS = json.loads((NOTEBOOKS / "simulation_domains.json").read_text(encoding="utf-8"))["colors"]
     all_samples = pl.read_parquet(DATA_DIR / "sample_domains.parquet")
@@ -138,7 +138,7 @@ def facts_cell(all_samples, pl, run_definition, samples):
         "vertical": run_definition["resolution"]["vertical"],
     }
     facts
-    return (facts,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -158,15 +158,15 @@ def chart_theme_cell(FONT, NAVY):
 def problem_figure_cell(PRESENTATION, mo):
     problem_figure = mo.image(PRESENTATION / "public" / "egm_in_bim_context.png", width="100%")
     problem_figure
-    return (problem_figure,)
+    return
 
 
 @app.cell(hide_code=True)
 def data_viewer_cell(GeoSpeckleViewer, geotop_bimdf, mo, pdok_3d_buildings):
     # GeoTOP's voxels among the 3D BAG
-    data_viewer = mo.ui.anywidget(GeoSpeckleViewer(geotop_bimdf, tilesets=[pdok_3d_buildings(geotop_bimdf)], height=900))
+    data_viewer = mo.ui.anywidget(GeoSpeckleViewer(geotop_bimdf, tilesets=[pdok_3d_buildings(geotop_bimdf)], height=1080))
     data_viewer
-    return (data_viewer,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -185,14 +185,14 @@ def domains_chart_cell(DOMAIN_COLORS, NAVY, alt, chart_theme, pl, samples):
         .with_columns(label=pl.format("{} · {} CPTs · {} m", "domain", "cpts", pl.col("meters").round(0).cast(pl.Int64)))
     )
     _labels = [_summary.filter(pl.col("domain") == _domain)["label"][0] for _domain in DOMAIN_COLORS]
-    _y = alt.Y("label:N", sort=_labels, title=None, axis=alt.Axis(labelLimit=420))
+    _y = alt.Y("label:N", sort=_labels, title=None, axis=alt.Axis(labelLimit=520))
     _color = alt.Color("domain:N", scale=alt.Scale(domain=list(DOMAIN_COLORS), range=list(DOMAIN_COLORS.values())), legend=None)
-    _x = alt.X("p10:Q", title="Cone resistance qc, P10 to P90 and median (MPa)", scale=alt.Scale(type="log", domain=[0.1, 100]))
+    _x = alt.X("p10:Q", title="qc, P10 to P90 and median (MPa)", scale=alt.Scale(type="log", domain=[0.1, 100]), axis=alt.Axis(values=[0.1, 1, 10, 100], format="~g"))
     _bars = alt.Chart(_summary).mark_bar(size=34, stroke=NAVY, strokeWidth=1).encode(x=_x, x2="p90:Q", y=_y, color=_color)
     _medians = alt.Chart(_summary).mark_tick(color=NAVY, size=44, thickness=4).encode(x="p50:Q", y=_y)
-    domains_chart = chart_theme((_bars + _medians).properties(width=820, height=520))
+    domains_chart = chart_theme((_bars + _medians).properties(width=700, height=640))
     domains_chart
-    return (domains_chart,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -222,7 +222,16 @@ def cross_sections_widget(NOTEBOOKS, anywidget, traitlets):
 
 
 @app.cell(hide_code=True)
-def section_view_cell(CrossSections, DOMAIN_COLORS, np, pl, run_cells, run_grid, run_names, samples):
+def section_view_cell(
+    CrossSections,
+    DOMAIN_COLORS,
+    np,
+    pl,
+    run_cells,
+    run_grid,
+    run_names,
+    samples,
+):
     _iz, _iy, _ix = run_cells
     _coords = {_axis: run_grid[_axis].values for _axis in ("x", "y", "z")}
     _size = {
@@ -251,8 +260,8 @@ def section_view_cell(CrossSections, DOMAIN_COLORS, np, pl, run_cells, run_grid,
         cpts=_cpts.to_dicts(),
         domains=[{"name": _name, "color": DOMAIN_COLORS[_name]} for _name in run_names],
         domain_of=_domain.tolist(),
-        x=float(_start[0]) + 45,
-        y=float(_start[1]) + 45,
+        x=float(_start[0]) + 5 * _size["x"],
+        y=float(_start[1]) + 5 * _size["y"],
         z=float(np.round(_coords["z"][np.abs(_coords["z"] - float(samples["z"].median())).argmin()], 3)),
     )
     return (section_view,)
@@ -285,7 +294,7 @@ def section_values(np, realization, run_cells, run_grid, section_view):
     return
 
 
-@app.cell(hide_code=True, expand_output=True)
+@app.cell(hide_code=True)
 def sections(section_view):
     section_view
     return
@@ -349,22 +358,62 @@ def uncertainty_chart_cell(alt, chart_theme, np, pl, run_grid, samples):
                 "ratio:Q",
                 title="P90 / P10",
                 scale=alt.Scale(scheme="oranges", type="log", domain=[1, 100], clamp=True),
-                legend=alt.Legend(gradientLength=380, orient="right"),
+                legend=alt.Legend(gradientLength=520, orient="right"),
             ),
         )
-        .properties(width=760, height=500)
+        .properties(width=1000, height=660)
     )
-    uncertainty_chart = chart_theme(alt.hconcat((_lines + _points).properties(width=320, height=500), _spread))
+    uncertainty_chart = chart_theme(alt.hconcat((_lines + _points).properties(width=400, height=660), _spread))
     uncertainty_chart
-    return (uncertainty_chart,)
+    return
 
 
 @app.cell(hide_code=True)
 def qr_cell(NAVY, SITE_URL, mo, segno):
     # The QR code on the closing slide
-    qr = mo.Html(segno.make(SITE_URL, error="m").svg_inline(scale=8, dark=NAVY))
+    qr = mo.Html(segno.make(SITE_URL, error="m").svg_inline(scale=20, dark=NAVY))
     qr
-    return (qr,)
+    return
+
+
+@app.cell(hide_code=True)
+def closing_section_cell(alt, chart_theme, np, pl, run_grid, samples):
+    # The median qc along a west–east section, for the closing slide, at 0.5 m in the vertical: rendered
+    # outputs are limited to 5 MB
+    _y = float(samples.group_by("column_y").len().sort("len", descending=True)["column_y"][0]) + 45
+    _section = run_grid["qc_p50"].sel(y=_y, method="nearest")
+    _section = _section.coarsen(z=round(0.5 / float(abs(_section["z"][1] - _section["z"][0]))), boundary="trim").median()
+    _iz, _ix = np.nonzero(np.isfinite(_section.values))
+    _size = float(_section["x"].values[1] - _section["x"].values[0])
+    _dz = float(abs(_section["z"].values[1] - _section["z"].values[0]))
+    _cells = pl.DataFrame(
+        {
+            "x": _section["x"].values[_ix] - _size / 2,
+            "x2": _section["x"].values[_ix] + _size / 2,
+            "z": _section["z"].values[_iz] - _dz / 2,
+            "z2": _section["z"].values[_iz] + _dz / 2,
+            "qc": _section.values[_iz, _ix],
+        }
+    )
+    closing_section = chart_theme(
+        alt.Chart(_cells)
+        .mark_rect()
+        .encode(
+            x=alt.X("x:Q", title="RD x (m)", scale=alt.Scale(zero=False, nice=False), axis=alt.Axis(format="d", tickCount=4)),
+            x2="x2:Q",
+            y=alt.Y("z:Q", title="Level (m NAP)", scale=alt.Scale(domain=[-36.5, 1.5])),
+            y2="z2:Q",
+            color=alt.Color(
+                "qc:Q",
+                title=["qc median", "(MPa)"],
+                scale=alt.Scale(scheme="viridis", type="log", clamp=True),
+                legend=alt.Legend(gradientLength=420, orient="right"),
+            ),
+        )
+        .properties(width=880, height=620)
+    )
+    closing_section
+    return
 
 
 if __name__ == "__main__":
