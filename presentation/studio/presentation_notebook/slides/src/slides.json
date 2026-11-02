@@ -1,0 +1,74 @@
+[
+  {
+    "id": "title",
+    "title": "An Open-Source Workflow for Creating Soft-Soil Engineering Geological Models and Making Them Accessible in BIM",
+    "points": ["Joost Gevaert", "Bedrock.engineer"]
+  },
+  {
+    "id": "problem",
+    "title": "Paleochannels don't form layers, and ground models rarely reach the designer",
+    "points": [
+      "Channels sit inside one geological unit",
+      "Surfaces can't model them",
+      "Designers work in BIM and GIS"
+    ]
+  },
+  {
+    "id": "pipeline",
+    "title": "Geology sets the domains, CPTs fill them in",
+    "points": []
+  },
+  {
+    "id": "data",
+    "title": "Everything starts from public data",
+    "points": []
+  },
+  {
+    "id": "domains",
+    "title": "Simulation domains follow the geology",
+    "points": [
+      "Grouped from GeoTOP's units",
+      "Never across a lithostratigraphic boundary",
+      "Each with enough CPT data"
+    ]
+  },
+  {
+    "id": "simulation",
+    "title": "Not one model but many equally likely ones",
+    "points": [
+      "Realizations of qc and fs",
+      "Each honors the CPTs",
+      "Soil types follow per realization"
+    ]
+  },
+  {
+    "id": "uncertainty",
+    "title": "The spread shows where we don't know",
+    "points": []
+  },
+  {
+    "id": "bim",
+    "title": "The ground model, right under the piles of a sample building",
+    "points": []
+  },
+  {
+    "id": "close-geology",
+    "title": "Geology + geostatistics",
+    "points": ["Conceptual + observational", "All data used", "Easy to update"]
+  },
+  {
+    "id": "close-accessible",
+    "title": "Accessible",
+    "points": ["Designers to regulators", "Better communication", "Risk-based decisions"]
+  },
+  {
+    "id": "close-open",
+    "title": "Open source",
+    "points": ["No lock-in", "Transparent", "Flexible"]
+  },
+  {
+    "id": "close-qr",
+    "title": "Notebooks, data and this model",
+    "points": []
+  }
+]
