@@ -4,7 +4,7 @@
 // sections, and drag in a section to change the plan's level. CPTs show as dots in the plan and,
 // in the sections, as one qc profile per column they cross: the median of the column's CPTs in a
 // band from their 10th to their 90th percentile. A CPT under the pointer in the plan shows its own
-// qc.
+// qc. The voxels are coloured by their simulation domain, stratigraphic unit or lithology class.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
@@ -21,6 +21,8 @@ const RED = "#d62728";
 const BLUE = "#1f77b4";
 const CPT_BLUE = "#08519c";
 const CPT_PICK_PX = 6;
+/** What the voxels can be coloured by, with its button's label */
+const COLOR_BY = { domain: "Simulation domain", unit: "Stratigraphic unit", lithology: "Lithology class" };
 
 function ticks(min, max, target) {
   const raw = (max - min) / target;
@@ -81,7 +83,28 @@ function render({ model, el }) {
   canvas.style.cssText = "display: block; touch-action: none; background: white;";
   const legend = document.createElement("div");
   legend.style.cssText = `display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0 ${LEFT}px;`;
-  root.append(canvas, legend);
+  // Buttons to colour the voxels by their simulation domain, stratigraphic unit or lithology class
+  const toolbar = document.createElement("div");
+  toolbar.style.cssText = `display: flex; align-items: center; gap: 6px; margin: 0 0 6px ${LEFT}px;`;
+  const buttons = Object.entries(COLOR_BY).map(([mode, label]) => {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      model.set("color_by", mode);
+      model.save_changes();
+    });
+    return [mode, button];
+  });
+  toolbar.append("Colour by", ...buttons.map(([, button]) => button));
+  function styleButtons() {
+    for (const [mode, button] of buttons) {
+      const on = model.get("color_by") === mode;
+      button.style.cssText =
+        `font: 12px sans-serif; padding: 2px 10px; border-radius: 3px; cursor: pointer; ` +
+        `border: 1px solid ${on ? BLUE : "#bbb"}; background: ${on ? BLUE : "white"}; color: ${on ? "white" : "#333"};`;
+    }
+  }
+  root.append(toolbar, canvas, legend);
   el.appendChild(root);
   const ctx = canvas.getContext("2d");
 
@@ -209,7 +232,7 @@ function render({ model, el }) {
     const z0 = model.get("z");
     const domainOf = model.get("domain_of");
     const domains = model.get("domains");
-    const color = (i) => domains[domainOf[i]]?.color ?? NOT_SIMULATED;
+    const color = voxelColor();
     ctx.clearRect(0, 0, layout.width, layout.height);
     for (const panel of [top, plan, side]) {
       ctx.fillStyle = "#f6f6f6";
@@ -371,8 +394,8 @@ function render({ model, el }) {
       lines.push(
         "",
         domains[domainOf[hover]]?.name ?? "not simulated",
-        ...wrap(ctx, model.get("units")[unit], corner.w - 12),
-        model.get("lithologies")[lithology],
+        ...wrap(ctx, model.get("units")[unit].name, corner.w - 12),
+        model.get("lithologies")[lithology].name,
         `x ${x}–${x + COLUMN}, y ${y}–${y + COLUMN}`,
         `z ${z.toFixed(1)} m NAP`,
       );
@@ -383,12 +406,36 @@ function render({ model, el }) {
     });
   }
 
+  // Each voxel's colour: its domain's (grey where it is not simulated), its stratigraphic unit's or
+  // its lithology class's
+  function voxelColor() {
+    const voxels = grid.voxels;
+    if (model.get("color_by") === "unit") {
+      const units = model.get("units");
+      return (i) => units[voxels[i][3]].color;
+    }
+    if (model.get("color_by") === "lithology") {
+      const lithologies = model.get("lithologies");
+      return (i) => lithologies[voxels[i][4]].color;
+    }
+    const domainOf = model.get("domain_of");
+    const domains = model.get("domains");
+    return (i) => domains[domainOf[i]]?.color ?? NOT_SIMULATED;
+  }
+
+  // The classes of what the voxels are coloured by; a stratigraphic unit by its code, with its
+  // name on hover
   function fillLegend() {
-    const items = [...model.get("domains"), { name: "not simulated", color: NOT_SIMULATED }].map(({ name, color }) => {
+    const classes = {
+      unit: model.get("units").map(({ code, name, color }) => ({ name: code, title: name, color })),
+      lithology: model.get("lithologies"),
+    }[model.get("color_by")] ?? [...model.get("domains"), { name: "not simulated", color: NOT_SIMULATED }];
+    const items = classes.map(({ name, title, color }) => {
       const item = document.createElement("span");
       const swatch = document.createElement("span");
       swatch.style.cssText = `display: inline-block; width: 12px; height: 12px; background: ${color}; vertical-align: middle; margin-right: 4px; border: 1px solid #bbb;`;
       item.append(swatch, name);
+      item.title = title ?? name;
       return item;
     });
     const cpt = document.createElement("span");
@@ -482,13 +529,16 @@ function render({ model, el }) {
     }
   });
 
-  for (const name of ["x", "y", "z", "domain_of", "cpts", "units", "lithologies"]) {
+  for (const name of ["x", "y", "z", "domain_of", "cpts"]) {
     model.on(`change:${name}`, draw);
   }
-  model.on("change:domains", () => {
-    fillLegend();
-    draw();
-  });
+  for (const name of ["domains", "units", "lithologies", "color_by"]) {
+    model.on(`change:${name}`, () => {
+      styleButtons();
+      fillLegend();
+      draw();
+    });
+  }
   model.on("change:voxels", () => {
     index();
     place();
@@ -497,6 +547,7 @@ function render({ model, el }) {
 
   index();
   place();
+  styleButtons();
   fillLegend();
   draw();
   const resizing = new ResizeObserver(() => {

@@ -460,7 +460,8 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         y and a south–north one through the column at x (x and y a column's south-west corner)"""
 
         _esm = Path(mo.notebook_dir()) / "cross_sections.js"
-        # Per voxel: x, y, z and its indices in units and lithologies
+        # Per voxel: x, y, z and its indices in units and lithologies, which hold each stratigraphic
+        # unit's code, name and colour and each lithology class's name and colour
         voxels = traitlets.List().tag(sync=True)
         units = traitlets.List().tag(sync=True)
         lithologies = traitlets.List().tag(sync=True)
@@ -469,6 +470,8 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         # The domains' names and colours, and each voxel's index in them (-1 where it is not simulated)
         domains = traitlets.List().tag(sync=True)
         domain_of = traitlets.List().tag(sync=True)
+        # What the voxels are coloured by: "domain", "unit" or "lithology"
+        color_by = traitlets.Unicode("domain").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
         y = traitlets.Float().tag(sync=True)
         z = traitlets.Float().tag(sync=True)
@@ -477,12 +480,34 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
 
 
 @app.cell(hide_code=True)
-def cross_sections(CrossSections, mo, pl, samples, voxels):
+def cross_sections(
+    CrossSections,
+    LITH_COLORS,
+    STRAT_COLORS,
+    mo,
+    pl,
+    samples,
+    voxels,
+):
     # Made once for the voxels, so the sections stay where they were dragged when the domains change
-    _units = voxels.select(
-        "stratigraphic_unit", pl.format("{} · {}", "stratigraphic_unit", "geologische_eenheid").alias("name")
-    ).unique("stratigraphic_unit", maintain_order=True)
-    _lithologies = voxels["grondsoort"].unique(maintain_order=True)
+    # The stratigraphic units from the top down and the lithology classes from the most voxels to the
+    # fewest, in GeoTOP's colours
+    _units = (
+        voxels.group_by("stratigraphic_unit")
+        .agg(pl.max("z"), pl.first("geologische_eenheid"))
+        .sort("z", descending=True)
+        .select(
+            code="stratigraphic_unit",
+            name=pl.format("{} · {}", "stratigraphic_unit", "geologische_eenheid"),
+            color=pl.col("stratigraphic_unit").replace_strict(STRAT_COLORS),
+        )
+    )
+    _lithologies = (
+        voxels.group_by("grondsoort")
+        .agg(pl.len(), pl.first("lithoklasse"))
+        .sort("len", descending=True)
+        .select(name="grondsoort", color=pl.col("lithoklasse").replace_strict(LITH_COLORS))
+    )
     _cpts = samples.sort("z", descending=True).group_by("bro_id", maintain_order=True).agg(pl.first("x", "y"), "z", "qc")
     # The sections start through the column with the most CPTs, at the CPT samples' median level
     _start = samples.group_by("column_x", "column_y").agg(pl.n_unique("bro_id")).sort("bro_id", descending=True).row(0)
@@ -490,11 +515,11 @@ def cross_sections(CrossSections, mo, pl, samples, voxels):
         voxels=voxels.select(
             pl.col("x", "y").cast(pl.Int64),
             "z",
-            pl.col("stratigraphic_unit").replace_strict({_u: _i for _i, _u in enumerate(_units["stratigraphic_unit"])}),
-            pl.col("grondsoort").replace_strict({_l: _i for _i, _l in enumerate(_lithologies)}),
+            pl.col("stratigraphic_unit").replace_strict({_u: _i for _i, _u in enumerate(_units["code"])}),
+            pl.col("grondsoort").replace_strict({_l: _i for _i, _l in enumerate(_lithologies["name"])}),
         ).rows(),
-        units=_units["name"].to_list(),
-        lithologies=_lithologies.to_list(),
+        units=_units.to_dicts(),
+        lithologies=_lithologies.to_dicts(),
         cpts=_cpts.to_dicts(),
         x=_start[0],
         y=_start[1],
@@ -517,32 +542,48 @@ def domain_viewer(GeoSpeckleViewer, geotop_bimdf, mo, pdok_3d_buildings):
 
 @app.cell(hide_code=True)
 def domain_viewer_objects(
+    DOMAIN_COLORS,
+    LITH_COLORS,
+    STRAT_COLORS,
     bim_objects,
+    bpl,
+    cpt_sticks,
     cross_sections,
     cut_sections,
-    domain_bimdf,
     models_gz,
     pl,
     speckle_view,
+    styled_bimdf,
+    voxel_bimdf,
 ):
-    # The domains into the 3D viewer, without the voxels in the cross-sections' row and column of
-    # columns when cut_sections is on
-    _geotop = pl.col("properties").struct.field("GeoTOP")
-    _in_sections = (_geotop.struct.field("x") == cross_sections.value["x"]) | (
-        _geotop.struct.field("y") == cross_sections.value["y"]
-    )
-    speckle_view.objects_gz = models_gz(
-        bim_objects(domain_bimdf.filter(~_in_sections.fill_null(False)) if cut_sections.value else domain_bimdf)
-    )
-    return
+    # The voxels into the 3D viewer, coloured like the cross-sections: by simulation domain (the simulated
+    # voxels only), stratigraphic unit or lithology class. With cut_sections on, without the voxels in
+    # the cross-sections' row and column of columns.
+    _color_by = cross_sections.value["color_by"]
+    if _color_by == "unit":
+        _voxels = styled_bimdf(voxel_bimdf, "stratigraphic_unit", pl.col("stratigraphic_unit").replace_strict(STRAT_COLORS))
+    elif _color_by == "lithology":
+        _voxels = styled_bimdf(voxel_bimdf, "grondsoort", pl.col("lithoklasse").replace_strict(LITH_COLORS))
+    else:
+        _voxels = styled_bimdf(
+            voxel_bimdf.filter(pl.col("domain").is_not_null()), "domain", pl.col("domain").replace_strict(DOMAIN_COLORS)
+        )
+    if cut_sections.value:
+        _geotop = pl.col("properties").struct.field("GeoTOP")
+        _voxels = _voxels.filter(
+            (_geotop.struct.field("x") != cross_sections.value["x"]) & (_geotop.struct.field("y") != cross_sections.value["y"])
+        )
+    viewer_bimdf = bpl.concat([_voxels, cpt_sticks], how="diagonal_relaxed")
+    speckle_view.objects_gz = models_gz(bim_objects(viewer_bimdf))
+    return (viewer_bimdf,)
 
 
 @app.cell(hide_code=True)
-def viewer_selection(domain_bimdf, domain_viewer, pl):
+def viewer_selection(domain_viewer, pl, viewer_bimdf):
     # The voxels and CPTs selected in the GeoSpeckleViewer
-    domain_bimdf.filter(
+    viewer_bimdf.filter(
         pl.col("id").is_in([_obj["applicationId"] for _obj in domain_viewer.value["selected"]])
-    ).select("id", "class", "name", "domain")
+    ).select("id", "class", "name", "domain", "stratigraphic_unit", "grondsoort")
     return
 
 
@@ -557,31 +598,26 @@ def cross_sections_domains(DOMAIN_COLORS, section_view, voxel_domains):
 
 
 @app.cell
-def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bimdf, pl, voxel_domains):
-    def _rgba(hex_color):
-        return [int(hex_color[_i : _i + 2], 16) / 255 for _i in (1, 3, 5)] + [1.0]
-
-
-    # The simulated voxels, each box in its domain's colour, with its domain as its class
-    _voxels = (
-        geotop_bimdf.with_columns(voxel_domains["domain"])
-        .filter(pl.col("domain").is_not_null())
-        .with_columns(
-            pl.col("domain").cast(pl.Categorical).alias("class"),
+def voxel_bimdf(bpl, cpts, geotop_bimdf, pl, voxel_domains):
+    def styled_bimdf(bimdf, name, color):
+        """The elements with the column name as their class, each mesh in one colour: color, an
+        expression of "#rrggbb" strings"""
+        _rgba = pl.concat_list(
+            [color.str.slice(_i, 2).str.to_integer(base=16) / 255 for _i in (1, 3, 5)] + [pl.lit(1.0)]
+        ).list.to_array(4)
+        return bimdf.with_columns(
+            pl.col(name).cast(pl.String).cast(pl.Categorical).alias("class"),
             mesh=pl.struct(
                 vertices=pl.col("mesh").struct.field("vertices"),
                 faces=pl.col("mesh").struct.field("faces"),
-                styles=pl.concat_list(
-                    pl.struct(
-                        name=pl.col("domain"),
-                        rgba=pl.col("domain").replace_strict(
-                            {_d: _rgba(_c) for _d, _c in DOMAIN_COLORS.items()}, return_dtype=pl.List(pl.Float64)
-                        ).list.to_array(4),
-                        face_count=pl.lit(12, dtype=pl.UInt32),
-                    )
-                ),
+                styles=pl.concat_list(pl.struct(name=pl.col(name), rgba=_rgba, face_count=pl.lit(12, dtype=pl.UInt32))),
             ).cast(bpl.MESH_DTYPE),
         )
+
+
+    # The voxels with their domain, stratigraphic unit and lithology class as columns
+    voxel_bimdf = geotop_bimdf.with_columns(
+        *voxel_domains.select("domain", "stratigraphic_unit", "lithoklasse", "grondsoort").get_columns()
     )
 
     # The CPTs as 2 m square sticks from their top to their base, built in RD New + NAP and moved into the
@@ -593,7 +629,7 @@ def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bimdf, pl, voxel_domains):
     _x0, _x1 = pl.col("x") - _half, pl.col("x") + _half
     _y0, _y1 = pl.col("y") - _half, pl.col("y") + _half
     _z0, _z1 = pl.col("base"), pl.col("top")
-    _cpt_sticks = bpl.to_crs(
+    cpt_sticks = bpl.to_crs(
         bpl.BimDataFrame(
             _cpt_rows.select(
                 id=pl.col("bro_id"),
@@ -615,8 +651,7 @@ def domain_bimdf(DOMAIN_COLORS, bpl, cpts, geotop_bimdf, pl, voxel_domains):
         ),
         geotop_bimdf.crs,
     )
-    domain_bimdf = bpl.concat([_voxels, _cpt_sticks], how="diagonal_relaxed")
-    return (domain_bimdf,)
+    return cpt_sticks, styled_bimdf, voxel_bimdf
 
 
 @app.cell(hide_code=True)
