@@ -1,0 +1,150 @@
+{
+  "qc": {
+    "transform": "log10",
+    "detrend": true,
+    "model": "Exponential",
+    "domains": {
+      "NAWA": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 100.0,
+          "vertical": 1.25
+        },
+        "trend": {
+          "intercept": 0.09029525709027345,
+          "slope": -0.014183374622945095
+        }
+      },
+      "NIHO": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 40.0,
+          "vertical": 0.95
+        },
+        "trend": {
+          "intercept": -0.4471445213604969,
+          "slope": -0.030371444310400987
+        }
+      },
+      "NAWO": {
+        "nugget": 0.1,
+        "len_scale": {
+          "horizontal": 125.0,
+          "vertical": 1.6
+        },
+        "trend": {
+          "intercept": -1.097096698149178,
+          "slope": -0.10301360627805424
+        }
+      },
+      "BXWISIKO": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 85.0,
+          "vertical": 0.55
+        },
+        "trend": {
+          "intercept": 2.1387308580459656,
+          "slope": 0.07670271454165511
+        }
+      },
+      "KRBXDE": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 140.0,
+          "vertical": 1.2
+        },
+        "trend": {
+          "intercept": 0.8826968586588004,
+          "slope": -0.013649029119767975
+        }
+      },
+      "EE": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 50.0,
+          "vertical": 1.75
+        },
+        "trend": {
+          "intercept": 0.1784353616913975,
+          "slope": -0.006175735015696895
+        }
+      }
+    }
+  },
+  "saved": "2026-11-02T01:48:38",
+  "simulation_domains_saved": "2026-11-02T01:30:32",
+  "rf": {
+    "transform": "none",
+    "detrend": true,
+    "model": "Exponential",
+    "domains": {
+      "NAWA": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 30.0,
+          "vertical": 1.3
+        },
+        "trend": {
+          "intercept": 2.4556181397971173,
+          "slope": 0.027372432671241134
+        }
+      },
+      "NIHO": {
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 25.0,
+          "vertical": 0.75
+        },
+        "trend": {
+          "intercept": 5.405023719862304,
+          "slope": -0.38286522553306795
+        }
+      },
+      "NAWO": {
+        "nugget": 0.29,
+        "len_scale": {
+          "horizontal": 25.0,
+          "vertical": 3.95
+        },
+        "trend": {
+          "intercept": 5.193765596997764,
+          "slope": 0.33766656472592144
+        }
+      },
+      "BXWISIKO": {
+        "nugget": 0.49,
+        "len_scale": {
+          "horizontal": 45.0,
+          "vertical": 6.35
+        },
+        "trend": {
+          "intercept": -0.7882716599650805,
+          "slope": -0.13125509446038475
+        }
+      },
+      "KRBXDE": {
+        "nugget": 0.2,
+        "len_scale": {
+          "horizontal": 125.0,
+          "vertical": 5.55
+        },
+        "trend": {
+          "intercept": 1.3968061771329718,
+          "slope": 0.015313840074659737
+        }
+      },
+      "EE": {
+        "nugget": 0.1,
+        "len_scale": {
+          "horizontal": 30.0,
+          "vertical": 5.6
+        },
+        "trend": {
+          "intercept": -3.58530666679102,
+          "slope": -0.19567733421620803
+        }
+      }
+    }
+  }
+}
