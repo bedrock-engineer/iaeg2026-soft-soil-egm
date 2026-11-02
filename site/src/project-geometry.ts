@@ -2,7 +2,7 @@ import proj4 from "proj4";
 import polygonClipping from "polygon-clipping";
 
 export const modelParquetUrl =
-  "https://r2.eu.bedrock.engineer/bimpolars/rvt-advanced-sample/rvt-advanced-sample-combined-arch-str-bdf.parquet";
+  "https://r2.eu.bedrock.engineer/nl-amsterdam-noord/rvt_advanced_sample_combined_arch_str.parquet";
 
 proj4.defs(
   "EPSG:28992",
@@ -25,10 +25,11 @@ function ringArea(ring: number[][]): number {
 
 /** The actual geog WKB is decoded as GeoJSON by hyparquet's GeoParquet support.
  * Union in RD meters, ignoring Z for the horizontal footprint; retain its largest polygon.
+ * Returns it in longitude and latitude, and its exterior ring in RD New for the cross sections.
  */
 export function buildingFootprint(
   geometries: Array<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
-): GeoJSON.Feature<GeoJSON.Polygon> {
+): { outline: GeoJSON.Feature<GeoJSON.Polygon>; ring: number[][] } {
   const unique = new Map<string, polygonClipping.Polygon>();
   for (const geometry of geometries) {
     for (const polygon of geometry.type === "Polygon"
@@ -77,15 +78,18 @@ export function buildingFootprint(
     area(p) > area(best) ? p : best,
   );
   return {
-    type: "Feature",
-    properties: {
-      name: "BIM footprint",
-      source: modelParquetUrl,
-      area_m2: area(largest),
+    outline: {
+      type: "Feature",
+      properties: {
+        name: "BIM footprint",
+        source: modelParquetUrl,
+        area_m2: area(largest),
+      },
+      geometry: {
+        type: "Polygon",
+        coordinates: largest.map((ring) => ring.map(toWgs84)),
+      },
     },
-    geometry: {
-      type: "Polygon",
-      coordinates: largest.map((ring) => ring.map(toWgs84)),
-    },
+    ring: largest[0]!,
   };
 }

@@ -14,17 +14,9 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 // MapLibre looks for its worker next to its own module, which the page's bundle is not
 setWorkerUrl(workerUrl);
 
-/** What site/sixty5.py writes for each footprint: the row's id, class, name and storey */
-export interface FootprintProperties {
-  id: string;
-  class: string | null;
-  name: string | null;
-  storey: string | null;
-  /** The storey's elevation in meters, in the model's height system */
-  elevation: number | null;
-}
+import { type Footprints, selectedFootprints } from "./footprints";
 
-export type Footprints = FeatureCollection<Polygon | MultiPolygon, FootprintProperties>;
+export { type FootprintProperties, type Footprints, selectedFootprints } from "./footprints";
 
 const KADASTER = '<a href="https://www.kadaster.nl/">Kadaster</a> / PDOK';
 
@@ -80,16 +72,6 @@ function bounds(features: Feature<Polygon | MultiPolygon>[]): LngLatBounds | nul
 /** The middle of a feature's bounds: where the ring around a small footprint goes */
 function middle(feature: Feature<Polygon | MultiPolygon>): Position {
   return (bounds([feature]) as LngLatBounds).getCenter().toArray();
-}
-
-/** The footprints of the given ids and the storeys they are on */
-export function selectedFootprints(footprints: Footprints, ids: string[]) {
-  const wanted = new Set(ids);
-  const features = footprints.features.filter((feature) => wanted.has(feature.properties.id));
-  const storeys = [
-    ...new Set(features.map((feature) => feature.properties.storey).filter((s) => s !== null)),
-  ];
-  return { features, storeys };
 }
 
 /**

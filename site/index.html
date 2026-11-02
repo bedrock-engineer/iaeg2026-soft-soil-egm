@@ -9,7 +9,7 @@
     <title>Amsterdam Noord GeoBIM</title>
     <meta
       name="description"
-      content="Revit architecture and structure in Amsterdam Noord, read from R2 Parquet beside a footprint and BRO map."
+      content="Revit architecture and structure in Amsterdam Noord on its soft-soil engineering geological model: SBTn volumes, interpreted CPTs, cross sections and CPT profiles, read in the browser from Parquet and Zarr on R2."
     />
     <meta property="og:type" content="website" />
     <meta
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Amsterdam Noord GeoBIM" />
     <meta
       property="og:description"
-      content="Revit architecture and structure in Amsterdam Noord, read from R2 Parquet beside a footprint and BRO map."
+      content="Revit architecture and structure in Amsterdam Noord on its soft-soil engineering geological model: SBTn volumes, interpreted CPTs, cross sections and CPT profiles, read in the browser from Parquet and Zarr on R2."
     />
     <link rel="stylesheet" href="/src/baseline/style.css" />
   </head>
@@ -32,20 +32,25 @@
         </summary>
         <p>
           Revit’s advanced sample project in
-          <strong>Overhoeks, Amsterdam Noord</strong>: the architecture and
-          structure models combined into one BimDataFrame.
+          <strong>Overhoeks, Amsterdam Noord</strong>, on the soft-soil
+          engineering geological model under it: the most likely Robertson soil
+          behavior type (SBTn) of the simulated cells as volumes, and the CPTs
+          interpreted layer by layer.
         </p>
         <p>
-          Read directly from
+          Read in the browser from
           <a
-            href="https://r2.eu.bedrock.engineer/bimpolars/rvt-advanced-sample/rvt-advanced-sample-combined-arch-str-bdf.parquet"
-            >Parquet on R2</a
-          >, among OpenStreetMap and the 3D BAG. Click an element to see its
-          footprint on the map.
+            href="https://r2.eu.bedrock.engineer/nl-amsterdam-noord/rvt_advanced_sample_combined_arch_str.parquet"
+            >Parquet</a
+          >
+          and Zarr on R2, among OpenStreetMap and the 3D BAG. Click an element
+          to see what it is; further down, cross sections through the cells and
+          the profile of a CPT.
         </p>
       </details>
       <script>
-        // Before the first paint, so that the intro neither flashes on a phone nor pops in
+        // Before the first paint, so that the intro neither flashes on a phone nor pops in. The bar's
+        // height, so that the panes under it fill the rest of the screen side by side
         {
           const intro = document.querySelector(".intro");
           const sideBySide = matchMedia("(min-width: 901px)");
@@ -54,54 +59,122 @@
             "change",
             () => (intro.open = sideBySide.matches),
           );
+          const bar = document.querySelector(".bar");
+          const measure = () =>
+            document.documentElement.style.setProperty(
+              "--bar-height",
+              `${bar.offsetHeight}px`,
+            );
+          measure();
+          new ResizeObserver(measure).observe(bar);
         }
       </script>
     </header>
-    <main class="panes">
-      <!-- The side-by-side layout's instructions, a sentence split where the panes are -->
-      <p class="how how-click">Click a BIM element</p>
-      <p class="how how-see">to see its footprint on the map</p>
-      <p class="how how-shift">Shift-click to select multiple</p>
-      <section id="viewer-pane" class="pane" aria-label="3D view of the model">
-        <div id="viewer"></div>
-        <p id="loading" class="loading">
-          Loading architecture and structure from R2 Parquet…
-        </p>
-      </section>
-      <div
-        id="splitter"
-        class="splitter"
-        role="separator"
-        tabindex="0"
-        aria-orientation="vertical"
-        aria-controls="viewer-pane map-pane"
-        aria-label="Width of the 3D view and the map"
-        title="Drag to resize; double-click to reset"
-      ></div>
-      <section id="map-pane" class="pane" aria-label="Footprint map">
-        <div id="map"></div>
-        <div class="basemaps" role="group" aria-label="Basemap">
-          <button type="button" data-basemap="topographic" aria-pressed="true">
-            Topographic
-          </button>
-          <button type="button" data-basemap="aerial" aria-pressed="false">
-            Aerial photo
-          </button>
+    <main class="page">
+      <div class="panes">
+        <!-- The side-by-side layout's instructions, a sentence split where the panes are -->
+        <p class="how how-click">Click a BIM element</p>
+        <p class="how how-see">to see its footprint on the map</p>
+        <p class="how how-shift">Shift-click to select multiple</p>
+        <section id="viewer-pane" class="pane" aria-label="3D view of the model">
+          <div id="viewer"></div>
+          <!-- Over the viewer's top left corner: what it shows, as the GeoBIM notebook has it beside
+               its viewer. Open side by side, a tap opens it on a phone -->
+          <details id="layers-panel" class="layers-panel">
+            <summary>Layers</summary>
+            <form id="layers" class="layers" aria-label="What the 3D view shows">
+              <fieldset>
+                <legend>3D Geospatial Context</legend>
+                <label><input type="checkbox" name="map" disabled /> Map</label>
+                <label
+                  ><input type="checkbox" name="buildings" checked disabled /> 3D
+                  buildings</label
+                >
+              </fieldset>
+              <fieldset>
+                <legend>BIM</legend>
+                <label
+                  ><input type="checkbox" name="architecture" disabled />
+                  Architecture</label
+                >
+                <label
+                  ><input type="checkbox" name="structure" checked disabled />
+                  Structure</label
+                >
+                <label
+                  ><input type="checkbox" name="cpts" checked disabled /> Interpreted
+                  CPTs</label
+                >
+                <label
+                  ><input type="checkbox" name="volumes" checked disabled /> SBTn
+                  volumes</label
+                >
+              </fieldset>
+              <!-- A checkbox per zone, from soil-model.ts -->
+              <fieldset id="sbtn-zones">
+                <legend>SBTn</legend>
+              </fieldset>
+            </form>
+          </details>
+          <script>
+            document.getElementById("layers-panel").open = matchMedia(
+              "(min-width: 901px)",
+            ).matches;
+          </script>
+          <p id="loading" class="loading">
+            Loading the building, the interpreted CPTs and the SBTn volumes from
+            R2 Parquet…
+          </p>
+        </section>
+        <div
+          id="splitter"
+          class="splitter"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-controls="viewer-pane map-pane"
+          aria-label="Width of the 3D view and the map"
+          title="Drag to resize; double-click to reset"
+        ></div>
+        <section id="map-pane" class="pane" aria-label="Footprint map">
+          <div id="map"></div>
+          <div class="basemaps" role="group" aria-label="Basemap">
+            <button type="button" data-basemap="topographic" aria-pressed="true">
+              Topographic
+            </button>
+            <button type="button" data-basemap="aerial" aria-pressed="false">
+              Aerial photo
+            </button>
+          </div>
+          <!-- Empty, and so out of sight, until something is selected -->
+          <aside
+            id="selection"
+            class="card"
+            aria-live="polite"
+            data-ids="[]"
+            data-drawn="[]"
+          ></aside>
+        </section>
+      </div>
+      <section class="soil" aria-labelledby="sections-title">
+        <h2 id="sections-title">Cross sections</h2>
+        <div id="cross-sections">
+          <p class="pending">Loading the soil model from R2 Zarr…</p>
         </div>
-        <!-- Empty, and so out of sight, until something is selected -->
-        <aside
-          id="selection"
-          class="card"
-          aria-live="polite"
-          data-ids="[]"
-          data-drawn="[]"
-        ></aside>
+        <h2>CPT</h2>
+        <div id="cpt-plot">
+          <p class="pending">
+            Loading the probabilities and Ic of the cells for the selected CPT…
+          </p>
+        </div>
       </section>
-      <!-- The stacked layout's: the strip where a swipe scrolls the page, the panes take the
-           touches for the camera and the map -->
+      <!-- The stacked layout's: the strip where a swipe scrolls the page, the viewer and the cross
+           sections take the touches for the camera and the sections -->
       <aside class="rail">
-        <p>Tap a BIM element to see its footprint on the map</p>
-        <p>Swipe here to scroll</p>
+        <div>
+          <p>Tap an element to see what it is</p>
+          <p>Swipe here to scroll</p>
+        </div>
       </aside>
     </main>
     <script type="module" src="./src/baseline/main.ts"></script>

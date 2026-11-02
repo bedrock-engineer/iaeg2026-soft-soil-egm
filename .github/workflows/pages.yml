@@ -6,6 +6,9 @@ on:
     paths:
       - "site/**"
       - "data/*.geojson"
+      # The page bundles the notebooks' CrossSections widget and the domains' colors
+      - "notebooks/cross_sections.js"
+      - "notebooks/simulation_domains.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

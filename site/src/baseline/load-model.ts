@@ -12,7 +12,9 @@ import type {
   Tileset,
 } from "../../vendor/geospeckle-viewer/lib/types";
 import { buildingFootprint, modelParquetUrl } from "../project-geometry.ts";
-import type { Footprints } from "./footprint-map";
+import { between, siteCrs } from "../site-crs.ts";
+import { isKept, SOIL_MODEL_URL } from "../soil-model.ts";
+import type { Footprints } from "./footprints";
 
 type Geometry = GeoJSON.Polygon | GeoJSON.MultiPolygon;
 type Row = {
@@ -28,8 +30,26 @@ type Row = {
   } | null;
   geog: Geometry | null;
   footprint: Geometry | null;
-  model_name: string;
+  model_name?: string;
+  /** The soil's property set: {"CPT": {...}} or {"SBTn volume": {...}} */
+  properties?: Record<string, Record<string, unknown>> | null;
+  bim_crs?: string | null;
 };
+
+/** The soil's BimDataFrames beside the building, and their property sets' names */
+const SOIL = {
+  cpts: { url: `${SOIL_MODEL_URL}cpts_interpreted_25cm.parquet`, propertySet: "CPT" },
+  volumes: { url: `${SOIL_MODEL_URL}sbtn_volumes_25cm.parquet`, propertySet: "SBTn volume" },
+};
+
+/** Parquet's int64 arrives as BigInt, which JSON has no place for: plain numbers */
+function plain(value: unknown): unknown {
+  if (typeof value === "bigint") return Number(value);
+  if (Array.isArray(value)) return value.map(plain);
+  if (value && typeof value === "object" && !ArrayBuffer.isView(value))
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)]));
+  return value;
+}
 const positions = (g: Geometry): number[][] =>
   g.type === "Polygon" ? g.coordinates.flat() : g.coordinates.flat(2);
 const ecef = (p: number[]) => {
@@ -67,7 +87,7 @@ function solve(matrix: number[][], values: number[]): number[] {
 /** Paired footprint/geog vertices encode the exact site's linearized ECEF transform,
  * including its ellipsoidal height. Recover it rather than guessing a Dutch geoid offset.
  */
-function siteTransform(rows: Row[]): Matrix4 {
+function siteTransform(rows: Row[], unit: number): Matrix4 {
   const pairs: Array<[number[], number[]]> = [];
   for (const r of rows) {
     if (!r.geog || !r.footprint) continue;
@@ -76,7 +96,7 @@ function siteTransform(rows: Row[]): Matrix4 {
     if (g.length !== p.length) continue;
     for (let i = 0; i < g.length; i += Math.max(1, Math.floor(g.length / 3)))
       if (g[i].length === 3 && p[i].length === 3)
-        pairs.push([ecef(g[i]), p[i].map((v) => v * 0.001)]);
+        pairs.push([ecef(g[i]), p[i].map((v) => v * unit)]);
   }
   if (pairs.length < 4)
     throw new Error("The model has no paired 3D footprint/geog coordinates.");
@@ -187,7 +207,16 @@ function groundMap(rows: Row[], transform: Matrix4): GroundMap {
     opacity: 0.85,
   };
 }
-function modelObjects(rows: Row[]): SpeckleObject[] {
+/** One model of the viewer: a root and its elements, each with its meshes. The prefix keeps the ids of
+ * several models apart; elementIds holds each row's element id, where it has one. */
+function modelObjects(
+  rows: Row[],
+  units: string,
+  prefix: string,
+  rootId: string,
+  rootName: string,
+): { objects: SpeckleObject[]; elementIds: Array<string | undefined> } {
+  const elementIds: Array<string | undefined> = [];
   const objects: SpeckleObject[] = [],
     elements: Array<{ referencedId: string; speckle_type: string }> = [],
     materials = new Map<string, { value: SpeckleObject; objects: string[] }>();
@@ -207,7 +236,7 @@ function modelObjects(rows: Row[]): SpeckleObject[] {
           },
         ];
     for (const [si, style] of styles.entries()) {
-      const id = `mesh-${ri}-${si}`,
+      const id = `${prefix}mesh-${ri}-${si}`,
         appId = `${row.id}/${si}`,
         faces: number[] = [];
       for (let i = offset * 3; i < (offset + style.face_count) * 3; i += 3)
@@ -218,7 +247,7 @@ function modelObjects(rows: Row[]): SpeckleObject[] {
         id,
         speckle_type: "Objects.Geometry.Mesh",
         applicationId: appId,
-        units: "mm",
+        units,
         vertices: mesh.vertices,
         faces,
         colors: [],
@@ -233,7 +262,7 @@ function modelObjects(rows: Row[]): SpeckleObject[] {
         const [r, g, b, a] = style.rgba;
         material = {
           value: {
-            id: `material-${materials.size}`,
+            id: `${prefix}material-${materials.size}`,
             speckle_type: "Objects.Other.RenderMaterial",
             name: style.name ?? "Default",
             diffuse:
@@ -252,28 +281,29 @@ function modelObjects(rows: Row[]): SpeckleObject[] {
       material.objects.push(appId);
     }
     const element: SpeckleObject = {
-      id: `element-${ri}`,
+      id: `${prefix}element-${ri}`,
       speckle_type: "Objects.Data.DataObject",
       applicationId: row.id,
       name: row.name ?? row.id,
       category: row.class,
       container: row.container,
-      properties: { model_name: row.model_name },
+      properties: row.properties ?? { model_name: row.model_name },
       displayValue: display,
       totalChildrenCount: display.length,
     };
     objects.push(element);
     elements.push(ref(element.id));
+    elementIds[ri] = element.id;
   }
   const root: SpeckleObject = {
-    id: "amsterdam-noord-rvt",
+    id: rootId,
     speckle_type: "Speckle.Core.Models.Collections.Collection",
-    name: "Amsterdam Noord · Revit architecture + structure",
-    units: "mm",
+    name: rootName,
+    units,
     elements,
     totalChildrenCount: objects.length,
     renderMaterialProxies: [...materials.values()].map((m, i) => ({
-      id: `proxy-${i}`,
+      id: `${prefix}proxy-${i}`,
       speckle_type: "Objects.Other.RenderMaterialProxy",
       value: m.value,
       objects: m.objects,
@@ -286,7 +316,7 @@ function modelObjects(rows: Row[]): SpeckleObject[] {
       ]),
     ),
   };
-  return [root, ...objects];
+  return { objects: [root, ...objects], elementIds };
 }
 async function contextTiles(
   bounds: number[],
@@ -371,27 +401,67 @@ async function contextTiles(
     hide_within: [rings],
   };
 }
-export async function loadR2Model() {
-  const file = await asyncBufferFromUrl({ url: modelParquetUrl });
+async function readRows(url: string, columns: string[]): Promise<Row[]> {
+  const file = await asyncBufferFromUrl({ url });
   const metadata = await parquetMetadataAsync(file);
-  const rows = (await parquetReadObjects({
+  return (await parquetReadObjects({
     file,
     metadata,
-    columns: [
-      "id",
-      "name",
-      "class",
-      "container",
-      "elevation",
-      "geog",
-      "footprint",
-      "mesh",
-      "model_name",
-    ],
+    columns,
     compressors,
     utf8: false,
   })) as Row[];
-  const outlineFeature = buildingFootprint(
+}
+
+/**
+ * The interpreted CPTs and the SBTn volumes of the kept zones, with their vertices in the building's
+ * CRS, whatever site grid on RD New + NAP that is: the soil's is in meters around RD 122,100 488,750.
+ */
+async function readSoil(building: Promise<Row[]>) {
+  const read = async ({ url, propertySet }: (typeof SOIL)[keyof typeof SOIL]) => {
+    const rows = await readRows(url, ["id", "name", "class", "properties", "mesh", "geog", "bim_crs"]);
+    const buildingCrs = siteCrs((await building).find((r) => r.bim_crs)!.bim_crs!);
+    const toBuilding = between(siteCrs(rows[0].bim_crs!), buildingCrs);
+    return rows
+      .map((row) => ({ ...row, properties: plain(row.properties) as Row["properties"] }))
+      .filter((row) => isKept(Number(row.properties![propertySet].sbtn_zone)))
+      .map((row) => {
+        const vertices = row.mesh!.vertices;
+        const moved: number[] = new Array(vertices.length);
+        for (let i = 0; i < vertices.length; i += 3) {
+          const p = toBuilding([vertices[i], vertices[i + 1], vertices[i + 2]]);
+          moved[i] = p[0];
+          moved[i + 1] = p[1];
+          moved[i + 2] = p[2];
+        }
+        return { ...row, container: null, elevation: null, footprint: null, mesh: { ...row.mesh!, vertices: moved } };
+      });
+  };
+  const [cpts, volumes] = await Promise.all([read(SOIL.cpts), read(SOIL.volumes)]);
+  return { cpts, volumes };
+}
+
+export async function loadR2Model() {
+  const reading = readRows(modelParquetUrl, [
+    "id",
+    "name",
+    "class",
+    "container",
+    "elevation",
+    "geog",
+    "footprint",
+    "mesh",
+    "model_name",
+    "bim_crs",
+  ]);
+  const [rows, { cpts, volumes }] = await Promise.all([reading, readSoil(reading)]);
+  // The viewer's world is the building's CRS in meters
+  const buildingCrs = siteCrs(rows.find((r) => r.bim_crs)!.bim_crs!);
+  const units = { 1: "m", 0.001: "mm" }[buildingCrs.unit];
+  if (!units) {
+    throw new Error(`${buildingCrs.name} is neither in meters nor in millimeters`);
+  }
+  const { outline: outlineFeature, ring } = buildingFootprint(
     rows.filter((r) => r.geog).map((r) => r.geog!),
   );
   const storeys = new Map(
@@ -401,7 +471,7 @@ export async function loadR2Model() {
   );
   const footprints: Footprints = {
     type: "FeatureCollection",
-    features: rows
+    features: [...rows, ...cpts, ...volumes]
       .filter((r) => r.mesh && r.geog && r.class !== "IfcOpeningElement")
       .map((r) => ({
         type: "Feature",
@@ -413,7 +483,7 @@ export async function loadR2Model() {
           elevation:
             storeys.get(r.container ?? "")?.elevation == null
               ? null
-              : storeys.get(r.container ?? "")!.elevation! * 0.001,
+              : storeys.get(r.container ?? "")!.elevation! * buildingCrs.unit,
         },
         geometry: {
           ...r.geog!,
@@ -428,11 +498,36 @@ export async function loadR2Model() {
         } as Geometry,
       })),
   };
-  const transform = siteTransform(rows),
-    ground_map = groundMap(rows, transform),
-    objects = modelObjects(rows);
+  // The ground map and the 3D BAG cover the volumes, which reach well beyond the building
+  const transform = siteTransform(rows, buildingCrs.unit),
+    ground_map = groundMap([...rows, ...volumes], transform);
+  const building = modelObjects(
+    rows,
+    units,
+    "",
+    "amsterdam-noord-rvt",
+    "Amsterdam Noord · Revit architecture + structure",
+  );
+  const cptModel = modelObjects(cpts, units, "cpt-", "amsterdam-noord-cpts", "Interpreted CPTs");
+  const volumeModel = modelObjects(volumes, units, "volume-", "amsterdam-noord-sbtn-volumes", "SBTn volumes");
+  // The elements of each checkbox, by their viewer ids: the viewer hides them without reloading
+  const groups = {
+    architecture: rows.flatMap((r, i) =>
+      r.model_name?.endsWith("-arch") && building.elementIds[i] ? [building.elementIds[i]!] : [],
+    ),
+    structure: rows.flatMap((r, i) =>
+      r.model_name?.endsWith("-str") && building.elementIds[i] ? [building.elementIds[i]!] : [],
+    ),
+    cpts: cptModel.elementIds.filter((id) => id !== undefined),
+    volumes: new Map(
+      volumes.map((r, i) => [
+        Number(r.properties![SOIL.volumes.propertySet].sbtn_zone),
+        [volumeModel.elementIds[i]!],
+      ]),
+    ),
+  };
   const packed = await new Response(
-    new Blob([JSON.stringify([objects])])
+    new Blob([JSON.stringify([building.objects, cptModel.objects, volumeModel.objects])])
       .stream()
       .pipeThrough(new CompressionStream("gzip")),
   ).arrayBuffer();
@@ -441,11 +536,14 @@ export async function loadR2Model() {
   return {
     state: { ground_map, tilesets: [], markers: [], height: null },
     objects: packed,
+    groups,
     footprints,
     outline: {
       type: "FeatureCollection",
       features: [outlineFeature],
     } as GeoJSON.FeatureCollection,
+    /** The building's outline as a ring in RD New, for the cross sections */
+    ring,
     tiles,
     rowCount: rows.length,
   };
