@@ -59,16 +59,35 @@ h1 {
   font-weight: 600;
 }
 
-/* The intro's summary is the title: a plain heading side by side, where the intro is always open
-   (index.html), and a toggle for it when stacked */
+/* The intro's summary is the title, and a toggle for it */
 .intro > summary {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   list-style: none;
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .intro > summary::-webkit-details-marker {
   display: none;
+}
+
+/* A chevron that turns up once the intro is open */
+.intro > summary::after {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 6px 4px 0 0;
+  border: solid var(--muted);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.intro[open] > summary::after {
+  margin-top: 10px;
+  transform: rotate(-135deg);
 }
 
 .intro p {
@@ -455,32 +474,6 @@ a {
   .splitter,
   #map-pane {
     display: none;
-  }
-
-  .intro > summary {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    pointer-events: auto;
-    cursor: pointer;
-  }
-
-  /* A chevron that turns up once the intro is open */
-  .intro > summary::after {
-    content: "";
-    flex: none;
-    width: 8px;
-    height: 8px;
-    margin: 6px 4px 0 0;
-    border: solid var(--muted);
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-
-  .intro[open] > summary::after {
-    margin-top: 10px;
-    transform: rotate(-135deg);
   }
 
   /* The view and what it shows, then the cross sections and the plot, the strip beside them all */

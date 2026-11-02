@@ -1,3 +1,5 @@
+import { CameraController } from "@speckle/viewer";
+import { Vector3 } from "three";
 import { loadR2Model } from "./load-model";
 // The bimpolars demo layout and interactions, with model traits decoded from R2 at runtime.
 import { mountGeoSpeckleViewer } from "../../vendor/geospeckle-viewer/index";
@@ -9,6 +11,15 @@ import { mountCptPlot } from "../cpt-plot.ts";
 import { mountCrossSections } from "../cross-sections.ts";
 import { gammaMissing, SoilModel } from "../soil-model.ts";
 import { viewerControls, zoneCheckboxes } from "../viewer-controls.ts";
+
+/**
+ * Where the camera starts, in the viewer's world (the GeoTOP site grid: m from RD 122,100 488,750, and
+ * m NAP): west of the volumes, looking east along the pit at the building
+ */
+const START_VIEW = {
+  position: [-440, 30, 132] as [number, number, number],
+  target: [-30, -25, 0] as [number, number, number],
+};
 
 /** m, the samples' height: the cells' */
 const SAMPLE_HEIGHT = 0.25;
@@ -276,7 +287,15 @@ async function main() {
     });
 
     await loaded;
-    viewerControls(form, model, await viewer, groups, state.ground_map, tiles);
+    const speckle = await viewer;
+    // From START_VIEW, with the near plane fitted to it: it still holds for the default view, far away
+    const camera = speckle.getExtension(CameraController);
+    camera.setCameraView(
+      { position: new Vector3(...START_VIEW.position), target: new Vector3(...START_VIEW.target) },
+      false,
+    );
+    camera.updateCameraPlanes();
+    viewerControls(form, model, speckle, groups, state.ground_map, tiles);
     loading.hidden = true;
   } catch (error) {
     console.error("The page failed to load", error);

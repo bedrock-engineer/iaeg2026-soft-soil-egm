@@ -1,4 +1,4 @@
-# Amsterdam Noord GeoBIM page
+# Soft Soil EGM, Amsterdam Noord: the GitHub Page
 
 Published at <https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/>.
 

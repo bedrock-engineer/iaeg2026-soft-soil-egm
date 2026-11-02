@@ -6,7 +6,7 @@
 
     <link rel="icon" href="%BASE_URL%favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%bedrock.svg" />
-    <title>Amsterdam Noord GeoBIM</title>
+    <title>Soft Soil EGM, Amsterdam Noord</title>
     <meta
       name="description"
       content="Revit architecture and structure in Amsterdam Noord on its soft-soil engineering geological model: SBTn volumes, interpreted CPTs, cross sections and CPT profiles, read in the browser from Parquet and Zarr on R2."
@@ -16,7 +16,7 @@
       property="og:url"
       content="https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/"
     />
-    <meta property="og:title" content="Amsterdam Noord GeoBIM" />
+    <meta property="og:title" content="Soft Soil EGM, Amsterdam Noord" />
     <meta
       property="og:description"
       content="Revit architecture and structure in Amsterdam Noord on its soft-soil engineering geological model: SBTn volumes, interpreted CPTs, cross sections and CPT profiles, read in the browser from Parquet and Zarr on R2."
@@ -25,10 +25,10 @@
   </head>
   <body>
     <header class="bar">
-      <!-- Open beside each other, collapsed to the title when stacked: a tap opens it -->
+      <!-- Collapsed to the title: a click or tap opens it -->
       <details class="intro">
         <summary>
-          <h1>Amsterdam Noord GeoBIM</h1>
+          <h1>Soft Soil EGM, Amsterdam Noord</h1>
         </summary>
         <p>
           Revit’s advanced sample project in
@@ -49,16 +49,9 @@
         </p>
       </details>
       <script>
-        // Before the first paint, so that the intro neither flashes on a phone nor pops in. The bar's
-        // height, so that the panes under it fill the rest of the screen side by side
+        // The bar's height, so that the panes under it fill the rest of the screen side by side, also
+        // while the intro is open
         {
-          const intro = document.querySelector(".intro");
-          const sideBySide = matchMedia("(min-width: 901px)");
-          intro.open = sideBySide.matches;
-          sideBySide.addEventListener(
-            "change",
-            () => (intro.open = sideBySide.matches),
-          );
           const bar = document.querySelector(".bar");
           const measure = () =>
             document.documentElement.style.setProperty(
