@@ -29,7 +29,7 @@ def _(mo):
     # Simulation
 
     Conditional Gaussian simulation of CPT parameters in each simulation domain: many equally likely
-    realizations of qc, fs or Rf in the domain's voxels, each honoring the CPTs and the domain's variogram.
+    realizations of qc and fs in the domain's voxels, each honoring the CPTs and the domain's variogram.
     Their spread is the uncertainty between the CPTs.
 
     Reads the simulation domains that `02_simulation_domains.py` saves (`notebooks/simulation_domains.json`,
@@ -198,9 +198,10 @@ def settings_intro(mo):
 
     The simulation cells divide each GeoTOP voxel of 100 × 100 × 0.5 m into cells of the chosen horizontal
     and vertical resolution, since the horizontal length scales of the variograms are 25–200 m and the vertical ones
-    about 0.5–6 m: on whole voxels, the values of neighboring voxels would be nearly unrelated. Each
-    parameter is simulated on its own, so the realizations of qc and Rf are not correlated with each other
-    beyond what the CPTs impose.
+    about 0.5–6 m: on whole voxels, the values of neighboring voxels would be nearly unrelated. fs is
+    co-simulated with qc (section 4), so that in each realization it keeps its relation with qc at the
+    CPTs; choosing fs simulates qc with it. Rf is not simulated: it follows from each realization's qc and
+    fs.
 
     Simulate saves one run with the chosen parameters, unless the same run was saved before (see section
     4). The table below the form lists the saved runs, the latest first; the selected run is shown in the
@@ -218,10 +219,14 @@ def settings(SIMULATED_PARAMETERS, gs, mo):
     # Resolutions that divide a voxel of 100 × 100 × 0.5 m
     HORIZONTAL_RESOLUTIONS = {"100 m: the GeoTOP voxels": 100.0, "50 m": 50.0, "25 m": 25.0, "20 m": 20.0, "10 m": 10.0}
     VERTICAL_RESOLUTIONS = {"0.5 m: the GeoTOP voxels": 0.5, "25 cm": 0.25, "10 cm": 0.1}
+    # fs is co-simulated with qc when its variograms can be simulated (section 4), so that each realization
+    # keeps their relation at the CPTs; qc is then simulated with it. Rf is not simulated: it follows from
+    # each realization's qc and fs. It is listed for the runs saved before.
+    COSIMULATED_WITH = {"fs": "qc"} if "qc" in SIMULATED_PARAMETERS else {}
     # qc until Simulate is pressed, if its variograms can be simulated
     _default = "qc" if "qc" in SIMULATED_PARAMETERS else SIMULATED_PARAMETERS[0]
     DEFAULT_SETTINGS = {"parameters": [_default], "horizontal": 25.0, "vertical": 0.5, "realizations": 10, "seed": 2026}
-    _simulated = {_label: _name for _label, _name in PARAMETERS.items() if _name in SIMULATED_PARAMETERS}
+    _simulated = {_label: _name for _label, _name in PARAMETERS.items() if _name in SIMULATED_PARAMETERS and _name != "rf"}
     simulation_settings = (
         mo.md("{parameters}\n\n{horizontal} &nbsp; {vertical}\n\n{realizations} &nbsp; {seed}")
         .batch(
@@ -234,11 +239,19 @@ def settings(SIMULATED_PARAMETERS, gs, mo):
         .form(submit_button_label="Simulate", bordered=True)
     )
     simulation_settings
-    return DEFAULT_SETTINGS, MODELS, PARAMETERS, UNITS, simulation_settings
+    return (
+        COSIMULATED_WITH,
+        DEFAULT_SETTINGS,
+        MODELS,
+        PARAMETERS,
+        UNITS,
+        simulation_settings,
+    )
 
 
 @app.cell(hide_code=True)
 def simulate(
+    COSIMULATED_WITH,
     DOMAIN_COLORS,
     MODELS,
     PARAMETERS,
@@ -247,6 +260,7 @@ def simulate(
     cdist,
     cells,
     conditioning,
+    correlations,
     datetime,
     grid_coords,
     grid_index,
@@ -290,37 +304,44 @@ def simulate(
     def _positions(frame):
         return frame.select("x", "y", "z").to_numpy() - _origin
 
-    def _condition(model, fields, cell_positions, data_positions, scores):
-        """Unconditioned fields (realizations × cells and data samples) conditioned on the data's normal scores
-        by simple kriging of the differences between the data and the fields at the data, all realizations
-        at once and the cells in chunks. Distances are taken with z stretched by the anisotropy, so that the
-        model's horizontal length scale holds in all directions. The nugget counts as measurement error: it
-        is on the data's diagonal only."""
-        _stretch = np.array([1.0, 1.0, 1.0 / model.anis[1]])
-        _cells, _data = cell_positions * _stretch, data_positions * _stretch
-        _data_covariance = model.covariance(
-            cdist(_data, _data)
-        ) + model.nugget * np.eye(len(_data))
-        # The kriging of the differences as weights of the data's covariances: data samples × realizations
-        _weights = pinvh(_data_covariance) @ (
-            scores[:, None] - fields[:, len(_cells) :].T
-        )
-        _conditioned = fields[:, : len(_cells)].copy()
-        for _start in range(0, len(_cells), CHUNK):
+    def _stretched(model, positions):
+        """Positions with z stretched by the model's anisotropy, so that its horizontal length scale holds in
+        all directions"""
+        return positions * np.array([1.0, 1.0, 1.0 / model.anis[1]])
+
+    def _kriging_weights(model, data_fields, data_positions, scores):
+        """The simple kriging of the differences between the data's normal scores (data samples, or data
+        samples × realizations) and the unconditioned fields at the data (realizations × data samples), as
+        weights of the data's covariances: data samples × realizations. The nugget counts as measurement
+        error: it is on the data's diagonal only."""
+        _data = _stretched(model, data_positions)
+        _data_covariance = model.covariance(cdist(_data, _data)) + model.nugget * np.eye(len(_data))
+        return pinvh(_data_covariance) @ (scores.reshape(len(_data), -1) - data_fields.T)
+
+    def _condition(model, weights, fields, positions, data_positions):
+        """Unconditioned fields (realizations × positions) conditioned on the data with the kriging weights,
+        all realizations at once and the positions in chunks"""
+        _positions, _data = _stretched(model, positions), _stretched(model, data_positions)
+        _conditioned = fields.copy()
+        for _start in range(0, len(_positions), CHUNK):
             _chunk = slice(_start, _start + CHUNK)
-            _conditioned[:, _chunk] += (
-                model.covariance(cdist(_cells[_chunk], _data)) @ _weights
-            ).T
+            _conditioned[:, _chunk] += (model.covariance(cdist(_positions[_chunk], _data)) @ weights).T
         return _conditioned
 
-    def _simulate(name):
-        """A parameter's realizations as an array of realizations × cells. Per domain: unconditioned fields of
-        normal scores with its variogram (GSTools' randomization method), conditioned on its CPT samples by
-        simple kriging with mean 0; the scores transformed back through its CPT values' distribution (beyond
-        the lowest and highest CPT value, the lowest and highest), the trend added, and 10 raised to it for
-        log10 parameters."""
+    def _simulate(name, scores_with=None):
+        """A parameter's realizations as an array of realizations × cells, and per domain its normal scores at
+        the cells. Per domain: unconditioned fields of normal scores with its
+        variogram (GSTools' randomization method), conditioned on its CPT samples by simple kriging with mean
+        0; the scores transformed back through its CPT values' distribution (beyond the lowest and highest
+        CPT value, the lowest and highest), the trend added, and 10 raised to it for log10 parameters.
+
+        With the scores of the parameter it is co-simulated with (collocated co-simulation, Markov model 1),
+        its scores are ρ times that parameter's scores in the same realization plus √(1 − ρ²) times its own
+        field, with ρ the domain's correlation of the two at the CPTs. Its own field is conditioned on what
+        the other parameter's scores at its CPT samples leave of its own scores there."""
         _definition = saved_variograms[name]
         _simulated = np.full((settings["realizations"], cells.height), np.nan)
+        _scores = {}
         for _d, _domain in enumerate(DOMAIN_COLORS):
             _data = conditioning.filter(
                 (pl.col("parameter") == name)
@@ -344,13 +365,25 @@ def simulate(
                     for _r in range(settings["realizations"])
                 ]
             )
-            _scores = _condition(
-                _model,
-                _fields,
-                _cell_positions,
-                _data_positions,
-                _data["score"].to_numpy(),
-            )
+            _cell_fields, _data_fields = _fields[:, : len(_cells)], _fields[:, len(_cells) :]
+            if scores_with is None:
+                _weights = _kriging_weights(_model, _data_fields, _data_positions, _data["score"].to_numpy())
+                _cell_scores = _condition(_model, _weights, _cell_fields, _cell_positions, _data_positions)
+            else:
+                # The other parameter's scores at this parameter's CPT samples, which all have both
+                _scores_with = _data.join(
+                    conditioning.filter(pl.col("parameter") == COSIMULATED_WITH[name]).select("bro_id", "z", score_with="score"),
+                    on=["bro_id", "z"],
+                    how="left",
+                    maintain_order="left",
+                )["score_with"].to_numpy()
+                _rho = correlations[name][_domain]
+                _rest = (_data["score"].to_numpy() - _rho * _scores_with) / np.sqrt(1 - _rho**2)
+                _weights = _kriging_weights(_model, _data_fields, _data_positions, _rest)
+                _cell_scores = _rho * scores_with[_domain] + np.sqrt(1 - _rho**2) * _condition(
+                    _model, _weights, _cell_fields, _cell_positions, _data_positions
+                )
+            _scores[_domain] = _cell_scores
             _trend = _definition["domains"][_domain]["trend"]
             _trend = (
                 _trend["intercept"]
@@ -358,7 +391,7 @@ def simulate(
             )
             _value = (
                 np.interp(
-                    _scores,
+                    _cell_scores,
                     _data["score"].to_numpy(),
                     _data["residual"].to_numpy(),
                 )
@@ -370,7 +403,7 @@ def simulate(
                 else _value
             )
             _bar.update()
-        return _simulated
+        return _simulated, _scores
 
     def _cube(simulated):
         """Realizations × cells as realizations × z × y × x on the regular grid, NaN outside the simulation
@@ -451,22 +484,35 @@ def simulate(
     else:
         _saved = _saved_parameters()
         _keys = {_name: json.dumps(_definition, sort_keys=True, ensure_ascii=False) for _name, _definition in parameter_definitions.items()}
-        _cubes, _seconds = {}, 0.0
+        # A parameter that others are co-simulated with is simulated again when one of them is simulated, for
+        # its scores; its realizations come out the same as those saved before
+        _simulated = {
+            _name
+            for _name, _key in _keys.items()
+            if _key not in _saved
+            or any(COSIMULATED_WITH.get(_other) == _name and _keys[_other] not in _saved for _other in _keys)
+        }
+        _cubes, _scores, _seconds = {}, {}, 0.0
         with mo.status.progress_bar(
-            total=max(sum(_key not in _saved for _key in _keys.values()) * len(DOMAIN_COLORS), 1),
+            total=max(len(_simulated) * len(DOMAIN_COLORS), 1),
             title="Simulating",
             show_eta=True,
         ) as _bar:
             for _name, _key in _keys.items():
-                if _key in _saved:
+                if _name not in _simulated:
                     with xr.open_dataset(_saved[_key], engine="h5netcdf") as _dataset:
                         _cubes[_name] = _dataset[_name].values
                     _report.append(f"Copied {_name} from `{_saved[_key].name}`, simulated before with the same inputs.")
                 else:
                     _started = datetime.now()
-                    _cubes[_name] = _cube(_simulate(_name))
+                    _with = COSIMULATED_WITH.get(_name)
+                    _values, _scores[_name] = _simulate(_name, _scores[_with] if _with else None)
+                    _cubes[_name] = _cube(_values)
                     _seconds += (datetime.now() - _started).total_seconds()
-                    _report.append(f"Simulated {_name} in {(datetime.now() - _started).total_seconds():.0f} s.")
+                    _report.append(
+                        f"Simulated {_name}{f', co-simulated with {_with},' if _with else ''} in "
+                        f"{(datetime.now() - _started).total_seconds():.0f} s."
+                    )
         _save(_cubes, _seconds)
         _report.append(f"Saved the run as `{run_path.name}`.")
     # The run the table selects, and what was done for it, shown under the Simulate form
@@ -511,6 +557,7 @@ def saved_runs(
                     "vertical (m)": _definition["resolution"]["vertical"],
                     "realizations": _definition["realizations"],
                     "seed": _definition["seed"],
+                    "co-simulated with qc": ", ".join(_definition.get("cosimulated", {})) or "none",
                     "current inputs": _current(_definition),
                     "created": _dataset.attrs["created"],
                     "minutes simulating": round(_dataset.attrs["seconds"] / 60, 1),
@@ -593,25 +640,6 @@ def view_intro(mo):
 
 
 @app.cell(hide_code=True)
-def view_controls(PARAMETERS, mo, run, simulated):
-    # What the cross-sections show of the selected run
-    _labels = {_name: _label for _label, _name in PARAMETERS.items()}
-    view_controls = mo.ui.dictionary(
-        {
-            "parameter": mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter"),
-            "shown": mo.ui.dropdown(
-                {"Median (P50)": "p50", "P10": "p10", "P90": "p90", "Spread (P90 against P10)": "spread"}
-                | {f"Realization {_r + 1}": f"r{_r}" for _r in range(run["realizations"])},
-                value="Median (P50)",
-                label="Show",
-            ),
-        }
-    )
-    mo.hstack([view_controls["parameter"], view_controls["shown"]], justify="start", gap=2)
-    return (view_controls,)
-
-
-@app.cell(hide_code=True)
 def cross_sections_widget(Path, anywidget, mo, traitlets):
     class CrossSections(anywidget.AnyWidget):
         """The cells from above at the level z, with a west–east section through the row of cells at y and a
@@ -640,6 +668,25 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         z = traitlets.Float().tag(sync=True)
 
     return (CrossSections,)
+
+
+@app.cell(hide_code=True)
+def view_controls(PARAMETERS, mo, run, simulated):
+    # What the cross-sections show of the selected run
+    _labels = {_name: _label for _label, _name in PARAMETERS.items()}
+    view_controls = mo.ui.dictionary(
+        {
+            "parameter": mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter"),
+            "shown": mo.ui.dropdown(
+                {"Median (P50)": "p50", "P10": "p10", "P90": "p90", "Spread (P90 against P10)": "spread"}
+                | {f"Realization {_r + 1}": f"r{_r}" for _r in range(run["realizations"])},
+                value="Median (P50)",
+                label="Show",
+            ),
+        }
+    )
+    mo.hstack([view_controls["parameter"], view_controls["shown"]], justify="start", gap=2)
+    return (view_controls,)
 
 
 @app.cell(hide_code=True, expand_output=True)
@@ -769,12 +816,14 @@ def distribution(
 
 
 @app.cell(hide_code=True)
-def check_cpt(mo, pl, samples):
+def check_cpt(PARAMETERS, mo, pl, samples, simulated):
     # The CPTs, with the cells they lie in
     _cpts = samples.group_by("bro_id").agg(pl.first("x"), pl.first("y"), pl.len().alias("samples")).sort("bro_id")
     check_cpt = mo.ui.dropdown(_cpts["bro_id"].to_list(), value=_cpts.sort("samples")["bro_id"][-1], label="CPT", searchable=True)
-    check_cpt
-    return (check_cpt,)
+    _labels = {_name: _label for _label, _name in PARAMETERS.items()}
+    check_parameter = mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter")
+    mo.hstack([check_cpt, check_parameter], justify="start", gap=2)
+    return check_cpt, check_parameter
 
 
 @app.cell(hide_code=True)
@@ -782,6 +831,7 @@ def cpt_check(
     UNITS,
     alt,
     check_cpt,
+    check_parameter,
     mo,
     np,
     pl,
@@ -791,9 +841,8 @@ def cpt_check(
     samples,
     simulated,
     statistics,
-    view_controls,
 ):
-    _name = view_controls.value["parameter"]
+    _name = check_parameter.value
     _log = run_log[_name]
     _cpt = samples.filter(pl.col("bro_id") == check_cpt.value)
     _x, _y = _cpt["x"][0], _cpt["y"][0]
@@ -849,14 +898,35 @@ def simulation_intro(mo):
     that definition, so pressing Simulate again with the same definition simulates nothing and selects the
     run saved before. A parameter simulated before with the same definition, in another run, is copied
     from it instead of simulated again.
+
+    fs is co-simulated with qc (collocated co-simulation with Markov model 1), so that a classification
+    of each realization, such as Robertson's, gets values of qc and fs that belong together. Per domain,
+    its normal scores are ρ times qc's in the same realization plus √(1 − ρ²) times a field of its own,
+    with its own variogram, conditioned on what qc's scores at the CPTs leave of its own. ρ is the domain's
+    correlation of the two scores at the CPT samples, in the table below. Its definition includes qc's
+    variograms and these correlations, and qc is simulated again with it when it is not copied. Rf is not
+    simulated: co-simulated with qc as well, it would differ from fs / qc in each realization, so it
+    follows from each realization's qc and fs instead.
     """)
     return
 
 
 @app.cell
-def grid(DEFAULT_SETTINGS, mo, np, pl, simulation_settings, voxels):
-    # The settings of the last Simulate, or the defaults until it is pressed
-    settings = simulation_settings.value or DEFAULT_SETTINGS
+def grid(
+    COSIMULATED_WITH,
+    DEFAULT_SETTINGS,
+    PARAMETERS,
+    mo,
+    np,
+    pl,
+    simulation_settings,
+    voxels,
+):
+    # The settings of the last Simulate, or the defaults until it is pressed, with the parameters that the
+    # chosen ones are co-simulated with, in PARAMETERS' order
+    _chosen = simulation_settings.value or DEFAULT_SETTINGS
+    _parameters = {*_chosen["parameters"], *(COSIMULATED_WITH[_name] for _name in _chosen["parameters"] if _name in COSIMULATED_WITH)}
+    settings = {**_chosen, "parameters": [_name for _name in PARAMETERS.values() if _name in _parameters]}
     mo.stop(not settings["parameters"], mo.md("Choose at least one parameter."))
 
 
@@ -894,7 +964,16 @@ def grid(DEFAULT_SETTINGS, mo, np, pl, simulation_settings, voxels):
 
 
 @app.cell
-def conditioning(NormalDist, pl, samples, saved_variograms, settings):
+def conditioning(
+    COSIMULATED_WITH,
+    DOMAIN_COLORS,
+    NormalDist,
+    mo,
+    pl,
+    samples,
+    saved_variograms,
+    settings,
+):
     _inverse_normal = NormalDist().inv_cdf
 
 
@@ -921,14 +1000,35 @@ def conditioning(NormalDist, pl, samples, saved_variograms, settings):
 
 
     conditioning = pl.concat([_conditioning(_name) for _name in settings["parameters"]])
-    return (conditioning,)
+
+
+    def _correlations(name):
+        """Per domain, the correlation of a parameter's normal scores with those of the parameter it is
+        co-simulated with, at the CPT samples with both"""
+        _scores = lambda _name: conditioning.filter(pl.col("parameter") == _name).select("domain", "bro_id", "z", "score")
+        _both = _scores(name).join(_scores(COSIMULATED_WITH[name]), on=["domain", "bro_id", "z"], suffix="_with")
+        return dict(_both.group_by("domain").agg(pl.corr("score", "score_with")).iter_rows())
+
+
+    correlations = {_name: _correlations(_name) for _name in settings["parameters"] if _name in COSIMULATED_WITH}
+    mo.vstack(
+        [
+            mo.md("The correlation of the normal scores with qc's at the CPT samples, per domain:"),
+            pl.DataFrame(
+                [{"domain": _domain, **{_name: round(correlations[_name][_domain], 2) for _name in correlations}} for _domain in DOMAIN_COLORS]
+            ),
+        ]
+    ) if correlations else None
+    return conditioning, correlations
 
 
 @app.cell
 def simulation_runs(
+    COSIMULATED_WITH,
     PARAMETERS,
     SAVE_DATES,
     SIMULATIONS_DIR,
+    correlations,
     domain_definition,
     hashlib,
     json,
@@ -939,17 +1039,34 @@ def simulation_runs(
     SIMULATION_VERSION = 1
 
 
+    def _variograms(name):
+        return {_k: _v for _k, _v in saved_variograms[name].items() if _k not in SAVE_DATES}
+
+
     def _parameter_definition(name):
         """Everything that decides a parameter's realizations: the method's version, the grid, the number of
-        realizations and the seed, the parameter's saved variograms and the simulation domains"""
+        realizations and the seed, the parameter's saved variograms, the simulation domains and, when it is
+        co-simulated, what with"""
         return {
             "version": SIMULATION_VERSION,
             "parameter": name,
             "resolution": {"horizontal": settings["horizontal"], "vertical": settings["vertical"]},
             "realizations": settings["realizations"],
             "seed": settings["seed"],
-            "variograms": {_k: _v for _k, _v in saved_variograms[name].items() if _k not in SAVE_DATES},
+            "variograms": _variograms(name),
             "simulation_domains": {_k: _v for _k, _v in domain_definition.items() if _k != "saved"},
+            # For a parameter co-simulated with another: that parameter's variograms and the correlations
+            **(
+                {
+                    "cosimulated_with": {
+                        "parameter": COSIMULATED_WITH[name],
+                        "variograms": _variograms(COSIMULATED_WITH[name]),
+                        "correlations": correlations[name],
+                    }
+                }
+                if name in COSIMULATED_WITH
+                else {}
+            ),
         }
 
 
@@ -958,10 +1075,20 @@ def simulation_runs(
     parameter_definitions = {
         _name: _parameter_definition(_name) for _name in PARAMETERS.values() if _name in settings["parameters"]
     }
+    _cosimulated = {
+        _name: {"with": _definition["cosimulated_with"]["parameter"], "correlations": _definition["cosimulated_with"]["correlations"]}
+        for _name, _definition in parameter_definitions.items()
+        if "cosimulated_with" in _definition
+    }
     run_definition = {
-        **{_k: _v for _k, _v in next(iter(parameter_definitions.values())).items() if _k not in ("parameter", "variograms")},
+        **{
+            _k: _v
+            for _k, _v in next(iter(parameter_definitions.values())).items()
+            if _k not in ("parameter", "variograms", "cosimulated_with")
+        },
         "parameters": list(parameter_definitions),
         "variograms": {_name: _definition["variograms"] for _name, _definition in parameter_definitions.items()},
+        **({"cosimulated": _cosimulated} if _cosimulated else {}),
     }
     _key = hashlib.sha256(json.dumps(run_definition, sort_keys=True).encode()).hexdigest()[:12]
     run_path = SIMULATIONS_DIR / f"{'-'.join(parameter_definitions)}_{_key}.nc"
