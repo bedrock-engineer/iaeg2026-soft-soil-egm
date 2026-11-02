@@ -4,7 +4,7 @@
 // section to change the plan's level. CPTs show as dots in the plan and, in the sections, as one qc
 // profile per GeoTOP column they cross: the median of the column's CPTs in a band from their 10th to
 // their 90th percentile. A CPT under the pointer in the plan shows its own qc. The voxels are GeoTOP's
-// or smaller cells of them (the cell trait), coloured by their simulation domain, stratigraphic unit,
+// or smaller cells of them (the cell trait), colored by their simulation domain, stratigraphic unit,
 // lithology class or a value (the values trait), whichever color_modes offers.
 
 const SECTION = 180; // px, the depth of the sections
@@ -16,15 +16,15 @@ const RIGHT = 8;
 const MAX_PLAN = 560;
 const COLUMN = 100; // m, GeoTOP's columns
 const VOXEL = 0.5; // m, GeoTOP's voxel height
-const QC_METRES = 2.5; // m along a section per MPa of qc: a GeoTOP column is 40 MPa wide
+const QC_METERS = 2.5; // m along a section per MPa of qc: a GeoTOP column is 40 MPa wide
 const NOT_SIMULATED = "#e8e8e8";
 const RED = "#d62728";
 const BLUE = "#1f77b4";
 const CPT_BLUE = "#08519c";
 const CPT_PICK_PX = 6;
-/** What the voxels can be coloured by, with its button's label; "value" takes value_scale's label */
+/** What the voxels can be colored by, with its button's label; "value" takes value_scale's label */
 const COLOR_BY = { domain: "Simulation domain", unit: "Stratigraphic unit", lithology: "Lithology class", value: "Value" };
-/** Colour schemes for values, from low to high */
+/** Color schemes for values, from low to high */
 const SCHEMES = {
   viridis: ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"],
   oranges: ["#fff5eb", "#fee6ce", "#fdd0a2", "#fdae6b", "#fd8d3c", "#f16913", "#d94801", "#a63603", "#7f2704"],
@@ -82,7 +82,7 @@ function wrap(ctx, text, width) {
   return line ? [...lines, line] : lines;
 }
 
-/** A value's colour on a scale {min, max, log, scheme}, by linear interpolation between the scheme's colours */
+/** A value's color on a scale {min, max, log, scheme}, by linear interpolation between the scheme's colors */
 function scaleColor(scale) {
   const stops = (SCHEMES[scale.scheme] ?? SCHEMES.viridis).map((hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16)));
   const position = scale.log
@@ -106,7 +106,7 @@ function render({ model, el }) {
   canvas.style.cssText = "display: block; touch-action: none; background: white;";
   const legend = document.createElement("div");
   legend.style.cssText = `display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 6px 0 0 ${LEFT}px;`;
-  // Buttons to colour the voxels by what color_modes offers
+  // Buttons to color the voxels by what color_modes offers
   const toolbar = document.createElement("div");
   toolbar.style.cssText = `display: flex; align-items: center; gap: 6px; margin: 0 0 6px ${LEFT}px;`;
   let buttons = [];
@@ -121,7 +121,7 @@ function render({ model, el }) {
       });
       return [mode, button];
     });
-    toolbar.replaceChildren("Colour by", ...buttons.map(([, button]) => button));
+    toolbar.replaceChildren("Color by", ...buttons.map(([, button]) => button));
     for (const [mode, button] of buttons) {
       const on = model.get("color_by") === mode;
       button.style.cssText =
@@ -141,7 +141,7 @@ function render({ model, el }) {
   let dragging = null;
 
   // The voxels by position, their size and levels, and the model's extent: x and y are a voxel's
-  // south-west corner, z its centre
+  // south-west corner, z its center
   function index() {
     const voxels = model.get("voxels");
     const cell = model.get("cell") ?? {};
@@ -335,7 +335,7 @@ function render({ model, el }) {
       const crossed = cellY(cpt.y) === y0 || cellX(cpt.x) === x0;
       dot(X(cpt.x), Y(cpt.y), crossed ? 2.5 : 1.8, crossed ? "#000" : "rgba(0, 0, 0, 0.45)");
     }
-    const qcPx = QC_METRES * s;
+    const qcPx = QC_METERS * s;
     const atTop = (start) => (qc, z) => [X(start) + qc * qcPx, topZ(z)];
     const atSide = (start) => (qc, z) => [sideZ(z), Y(start) - qc * qcPx];
     clipped(top, () => {
@@ -453,7 +453,7 @@ function render({ model, el }) {
     });
   }
 
-  // Each voxel's colour: its domain's (grey where it is not simulated), its stratigraphic unit's,
+  // Each voxel's color: its domain's (gray where it is not simulated), its stratigraphic unit's,
   // its lithology class's or its value's on value_scale
   function voxelColor() {
     const voxels = grid.voxels;
@@ -475,7 +475,7 @@ function render({ model, el }) {
     return (i) => domains[domainOf[i]]?.color ?? NOT_SIMULATED;
   }
 
-  // A colour bar from the scale's minimum to its maximum, with ticks at both ends and in between
+  // A color bar from the scale's minimum to its maximum, with ticks at both ends and in between
   function colorBar(scale) {
     const bar = document.createElement("span");
     const color = scaleColor(scale);
@@ -489,7 +489,7 @@ function render({ model, el }) {
     return bar;
   }
 
-  // The classes or colour bar of what the voxels are coloured by; a stratigraphic unit by its code,
+  // The classes or color bar of what the voxels are colored by; a stratigraphic unit by its code,
   // with its name on hover
   function fillLegend() {
     const colorBy = model.get("color_by");
@@ -513,7 +513,7 @@ function render({ model, el }) {
     const cpt = document.createElement("span");
     cpt.textContent =
       `● CPT. In the sections, per GeoTOP column: the median qc of its CPTs, in a band from their 10th ` +
-      `to 90th percentile (${COLUMN / QC_METRES} MPa per column width). Hover over a CPT in the plan for its own qc.`;
+      `to 90th percentile (${COLUMN / QC_METERS} MPa per column width). Hover over a CPT in the plan for its own qc.`;
     legend.replaceChildren(...items, cpt);
   }
 

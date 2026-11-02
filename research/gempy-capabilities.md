@@ -4,9 +4,9 @@ Research for [#3](https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/iss
 
 ## Answer
 
-1. **Structural model: yes.** GemPy 2026.0.3 (the v3 line) builds a unit model from GeoTOP if each column's unit bases are used as surface points. A smoke test on synthetic GeoTOP-like columns (5×6 columns of 100 m, 0.5 m voxels, ~500×600×55 m) reproduced the input voxels at 99.4–99.9 % of column-centre cells. A full model computed in about 35 s on CPU.
+1. **Structural model: yes.** GemPy 2026.0.3 (the v3 line) builds a unit model from GeoTOP if each column's unit bases are used as surface points. A smoke test on synthetic GeoTOP-like columns (5×6 columns of 100 m, 0.5 m voxels, ~500×600×55 m) reproduced the input voxels at 99.4–99.9 % of column-center cells. A full model computed in about 35 s on CPU.
 2. **Geostatistics: yes, but it is no longer in GemPy itself.** The v2 module `gempy.assets.kriging` (used by tutorial `ch3_1`) does not exist in GemPy 2026. It has been replaced by **`gempy_plugins.property_estimation`** (`gempy_plugins` 2026.0.3, released 2026-08-07). That module is a thin wrapper around **GSTools**. It does kriging and conditional simulation per GemPy domain (lithology × fault block), on the GemPy regular grid. It ran end to end in the smoke test.
-3. **Caveat on the word "SGS".** GSTools `CondSRF` is *not* sequential Gaussian simulation. It builds `kriged mean + unconditional field × sqrt(kriging variance / sill)` (verified in source). It honours the data and the kriging variance, so it works as a "conditional Gaussian simulation". If the slides say "SGS", either change the wording or use one of the alternatives in §4.
+3. **Caveat on the word "SGS".** GSTools `CondSRF` is *not* sequential Gaussian simulation. It builds `kriged mean + unconditional field × sqrt(kriging variance / sill)` (verified in source). It honors the data and the kriging variance, so it works as a "conditional Gaussian simulation". If the slides say "SGS", either change the wording or use one of the alternatives in §4.
 4. **`gempy_probability` does not fit.** It is Bayesian (Pyro) inference of *structural* parameters, not property simulation. Its PyPI release also pins `gempy~=2024.2.0`, and its `main` branch pins `gempy~=2025.1.0`. Both conflict with GemPy 2026.
 
 ### Recommendation for a 1-week build
@@ -14,7 +14,7 @@ Research for [#3](https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/iss
 Pin `gempy==2026.0.3`, `gempy_plugins==2026.0.3` and `gstools==1.7.0` (Python 3.12). Then:
 
 - **Notebook A (geology):** GeoTOP voxels → unit-base points per column → GemPy model with 3–5 groups, plus zero-thickness points where a unit is absent (see §2) → `lith_block` on a 10×10×0.5 m grid.
-- **Notebook B (parameters):** CPT log(qc) and log(fs), averaged to 0.5 m → `ConditioningData` → for each unit, an anisotropic GSTools variogram (`len_scale=[Lh, Lh, Lv]`) → `run_kriging` (mean and variance) and `run_simulation` with N seeds (realisations, then P10/P50/P90).
+- **Notebook B (parameters):** CPT log(qc) and log(fs), averaged to 0.5 m → `ConditioningData` → for each unit, an anisotropic GSTools variogram (`len_scale=[Lh, Lh, Lv]`) → `run_kriging` (mean and variance) and `run_simulation` with N seeds (realizations, then P10/P50/P90).
 - If the plugin gets in the way, drop to plain GSTools with the same objects. The plugin is about 170 lines around `gs.krige.*` and `gs.CondSRF`, and nothing else is needed.
 - Call the method "conditional Gaussian simulation (GSTools)". Do not call it SGS unless you implement the conditioning step yourself (§4).
 
@@ -82,12 +82,12 @@ So:
 | | **gempy_plugins.property_estimation** | **GSTools 1.7** (direct) | **PyKrige 1.7.3** | **geostatspy 0.0.79** | **gempy_probability** |
 |---|---|---|---|---|---|
 | Conditioning to data | yes (`ConditioningData`, nearest-cell domain assignment) | yes (`Krige(cond_pos, cond_val)`, `exact`, `cond_err`) | yes (kriging only) | yes | n/a |
-| Anisotropic variogram | yes (GSTools `CovModel`, `len_scale=[a,b,c]`, `angles`); anisotropy-aware moving neighbourhood via `model.isometrize` | yes, plus `vario_estimate(direction=…)` and `vario_estimate_axis` | yes (`anisotropy_scaling_y/z`, angles) | yes (`hmaj/hmin/hvert`, azimuth) | n/a |
-| Multiple realisations | yes (`seed` per call) | yes | **no simulation** | yes (`nreal`) | n/a (structural) |
+| Anisotropic variogram | yes (GSTools `CovModel`, `len_scale=[a,b,c]`, `angles`); anisotropy-aware moving neighborhood via `model.isometrize` | yes, plus `vario_estimate(direction=…)` and `vario_estimate_axis` | yes (`anisotropy_scaling_y/z`, angles) | yes (`hmaj/hmin/hvert`, azimuth) | n/a |
+| Multiple realizations | yes (`seed` per call) | yes | **no simulation** | yes (`nreal`) | n/a (structural) |
 | True SGS | no: CondSRF (kriged mean + scaled unconditional field) | no, same mechanism | no | **yes** (GSLIB `sgsim` port, `sgsim_3D`) | no |
-| Regular 3D grid masked per unit | **built in** (lith × fault-block domains taken from `geo_model.solutions`) | do it yourself with a numpy mask (`mesh_type="unstructured"` on the cell centres) | do it yourself | no mask: simulates the full box | n/a |
+| Regular 3D grid masked per unit | **built in** (lith × fault-block domains taken from `geo_model.solutions`) | do it yourself with a numpy mask (`mesh_type="unstructured"` on the cell centers) | do it yourself | no mask: simulates the full box | n/a |
 | Normal-score / log transform | through `krige_kwargs={"normalizer": gs.normalizer.LogNormal()}` | `gs.normalizer.*` (LogNormal, BoxCox, YeoJohnson…) | no | yes (`itrans`) | n/a |
-| Speed (smoke test, 330 k cells, 960 data) | ~64 s per realisation (all domains); kriging 49 s | same | — | not tested; per-node python/numba loop **[I]** | — |
+| Speed (smoke test, 330 k cells, 960 data) | ~64 s per realization (all domains); kriging 49 s | same | — | not tested; per-node python/numba loop **[I]** | — |
 | Compatible with gempy 2026 | yes | yes | yes | yes | **no** (version pin) |
 
 All rows **[V]** from installed source and signatures, except where marked otherwise.
@@ -183,8 +183,8 @@ Input: synthetic "GeoTOP" with 5×6 columns at 100 m, 0.5 m voxels, units AAOP /
 Results:
 
 - Points extracted: 30 per unit (13 for NIBA). `gp.compute_model` on a 50×60×110 grid (10×10×0.5 m, 330 k cells): **35 s**.
-- Domains `(1,0)…(6,0)` = AAOP…basement. Agreement between GemPy `lith_block` and the input voxels at column centres: **99.4 %**, or **99.9 %** with zero-thickness points.
-- `run_simulation` with an anisotropic Exponential model (`len_scale=[40,40,1.5]`), Simple kriging with the per-unit mean, 3 seeds: **192 s for 3 realisations**. No NaN cells, realisations differ, median |sim − data| at the nearest cell is 0.17 in log-qc (data are not at cell centres).
+- Domains `(1,0)…(6,0)` = AAOP…basement. Agreement between GemPy `lith_block` and the input voxels at column centers: **99.4 %**, or **99.9 %** with zero-thickness points.
+- `run_simulation` with an anisotropic Exponential model (`len_scale=[40,40,1.5]`), Simple kriging with the per-unit mean, 3 seeds: **192 s for 3 realizations**. No NaN cells, realizations differ, median |sim − data| at the nearest cell is 0.17 in log-qc (data are not at cell centers).
 - `run_kriging` (Ordinary): **49 s**, variance range 0.017–0.117 (sill 0.1).
 - **Not tested:** real GeoTOP or BRO data, topography masking, Path B′, geostatspy, GPU or torch backend, and memory at finer grids. Global kriging solves an n×n system per unit. With CPTs averaged to 0.5 m (~100 values per CPT) and 10–30 CPTs, that is ≤3 000 points per unit, which is fine. Raw 2 cm CPT data would need averaging or `Neighborhood("n_closest")`. **[I]**
 
@@ -200,6 +200,6 @@ for i, j in columns:                       # GeoTOP column (x_c, y_c)
 
 ## 6. Open points for the map
 
-- **Variogram inference:** CPTs give good vertical ranges, but 100 m GeoTOP spacing and sparse CPTs give weak horizontal ranges. Expect to *assume* horizontal ranges (tens of metres) or borrow them from literature, and say so on the slides. **[I]**
+- **Variogram inference:** CPTs give good vertical ranges, but 100 m GeoTOP spacing and sparse CPTs give weak horizontal ranges. Expect to *assume* horizontal ranges (tens of meters) or borrow them from literature, and say so on the slides. **[I]**
 - **What to simulate:** log(qc) and log(fs) separately (independent), or Rf. Co-simulation is not in GSTools or the plugin. **[I]**
 - **Grid for Speckle:** 10×10×0.5 m over 400×600×55 m is about 260–330 k cells. Mean, P10 and P90 are three scalar arrays on the same grid. **[V] for cell count.**

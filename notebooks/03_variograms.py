@@ -82,7 +82,7 @@ def read_inputs(Path, domains_json, json, mo, pl, samples_parquet):
         mo.md("Save the simulation domains in `02_simulation_domains.py` first."),
     )
     domain_definition = json.loads(Path(domains_json).read_text(encoding="utf-8"))
-    # The domains from the top down, in the colours 02 gave them
+    # The domains from the top down, in the colors 02 gave them
     DOMAIN_COLORS = domain_definition["colors"]
     samples = pl.read_parquet(Path(samples_parquet))
     mo.md(
@@ -176,7 +176,7 @@ def scores(LOG_PARAMETERS, NormalDist, detrend, mo, parameters, pl, samples):
 
 @app.cell(hide_code=True)
 def data_table(DOMAIN_COLORS, UNITS, mo, parameters, pl, trends):
-    # The parameters in the order they were chosen, each with its domains from the top down, in their colours
+    # The parameters in the order they were chosen, each with its domains from the top down, in their colors
     _order = {
         "parameter": {_name: _i for _i, _name in enumerate(parameters.value)},
         "domain": {_domain: _i for _i, _domain in enumerate(DOMAIN_COLORS)},

@@ -26,7 +26,7 @@
     "a": "fill"
   },
   "simulate_down_to": -36,
-  "min_cpt_metres": 1.0,
+  "min_cpt_meters": 1.0,
   "colors": {
     "NAWA": "#98dc75",
     "NIHO": "#d08228",

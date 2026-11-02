@@ -20,7 +20,7 @@ export interface FootprintProperties {
   class: string | null;
   name: string | null;
   storey: string | null;
-  /** The storey's elevation in metres, in the model's height system */
+  /** The storey's elevation in meters, in the model's height system */
   elevation: number | null;
 }
 
@@ -55,7 +55,7 @@ export type Basemap = keyof typeof BASEMAPS;
 /** The basemap the map opens on; index.html's pressed button says the same */
 export const DEFAULT_BASEMAP: Basemap = "topographic";
 
-const COLOURS = {
+const COLORS = {
   outline: "#e3262b",
   storey: "#9cc3ff",
   selected: "#2f6fde",
@@ -95,7 +95,7 @@ export function selectedFootprints(footprints: Footprints, ids: string[]) {
 /**
  * A MapLibre map of a model's footprints on PDOK's topographic map: the building's outline
  * dotted red, and for a selection its footprints filled, with a ring around each so that a column's half
- * metre stands out, and the other footprints of their storeys faint.
+ * meter stands out, and the other footprints of their storeys faint.
  */
 export class FootprintMap {
   readonly map: MaplibreMap;
@@ -131,14 +131,14 @@ export class FootprintMap {
             type: "fill",
             source: "footprints",
             filter: ["boolean", false],
-            paint: { "fill-color": COLOURS.storey, "fill-opacity": 0.15 },
+            paint: { "fill-color": COLORS.storey, "fill-opacity": 0.15 },
           },
           {
             id: "storey-line",
             type: "line",
             source: "footprints",
             filter: ["boolean", false],
-            paint: { "line-color": COLOURS.storey, "line-width": 1 },
+            paint: { "line-color": COLORS.storey, "line-width": 1 },
           },
           {
             id: "outline",
@@ -146,21 +146,21 @@ export class FootprintMap {
             source: "outline",
             // Dots: dashes of no length with round caps, a dot's width apart
             layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": COLOURS.outline, "line-width": 3, "line-dasharray": [0, 2] },
+            paint: { "line-color": COLORS.outline, "line-width": 3, "line-dasharray": [0, 2] },
           },
           {
             id: "selected-fill",
             type: "fill",
             source: "footprints",
             filter: ["boolean", false],
-            paint: { "fill-color": COLOURS.selected, "fill-opacity": 0.75 },
+            paint: { "fill-color": COLORS.selected, "fill-opacity": 0.75 },
           },
           {
             id: "selected-line",
             type: "line",
             source: "footprints",
             filter: ["boolean", false],
-            paint: { "line-color": COLOURS.selected, "line-width": 2 },
+            paint: { "line-color": COLORS.selected, "line-width": 2 },
           },
           {
             id: "rings",
@@ -169,7 +169,7 @@ export class FootprintMap {
             paint: {
               "circle-radius": 14,
               "circle-color": "rgba(0, 0, 0, 0)",
-              "circle-stroke-color": COLOURS.selected,
+              "circle-stroke-color": COLORS.selected,
               "circle-stroke-width": 3,
             },
           },
@@ -229,7 +229,7 @@ export class FootprintMap {
       bounds(features) ?? bounds(this.#outline.features as Feature<Polygon | MultiPolygon>[]);
     if (target) {
       const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // A column's half metre at most 20: some of its storey stays in view around it
+      // A column's half meter at most 20: some of its storey stays in view around it
       this.map.fitBounds(target, { padding: 60, maxZoom: 20, duration: still ? 0 : 600 });
     }
     return { features, storeys };

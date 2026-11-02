@@ -29,7 +29,7 @@ def _(mo):
     # Simulation
 
     Conditional Gaussian simulation of CPT parameters in each simulation domain: many equally likely
-    realisations of qc, fs or Rf in the domain's voxels, each honouring the CPTs and the domain's variogram.
+    realizations of qc, fs or Rf in the domain's voxels, each honoring the CPTs and the domain's variogram.
     Their spread is the uncertainty between the CPTs.
 
     Reads the simulation domains that `02_simulation_domains.py` saves (`notebooks/simulation_domains.json`,
@@ -132,9 +132,9 @@ def read_inputs(
     domain_definition = json.loads(Path(domains_json).read_text(encoding="utf-8"))
     saved_variograms = json.loads(Path(variograms_json).read_text(encoding="utf-8"))
     # Each parameter's variograms carry when they were saved and the date of the simulation domains they were
-    # fitted on; neither changes the realisations
+    # fitted on; neither changes the realizations
     SAVE_DATES = ("saved", "simulation_domains_saved")
-    # The domains from the top down, in the colours 02 gave them
+    # The domains from the top down, in the colors 02 gave them
     DOMAIN_COLORS = domain_definition["colors"]
     # The GeoTOP voxels in a simulation domain, and the CPT samples of 0.5 m in them
     voxels = pl.read_parquet(Path(voxels_parquet)).filter(pl.col("domain").is_not_null()).select(
@@ -198,8 +198,8 @@ def settings_intro(mo):
 
     The simulation cells divide each GeoTOP voxel of 100 × 100 × 0.5 m into cells of the chosen horizontal
     and vertical resolution, since the horizontal length scales of the variograms are 25–200 m and the vertical ones
-    about 0.5–6 m: on whole voxels, the values of neighbouring voxels would be nearly unrelated. Each
-    parameter is simulated on its own, so the realisations of qc and Rf are not correlated with each other
+    about 0.5–6 m: on whole voxels, the values of neighboring voxels would be nearly unrelated. Each
+    parameter is simulated on its own, so the realizations of qc and Rf are not correlated with each other
     beyond what the CPTs impose.
 
     Simulate saves one run with the chosen parameters, unless the same run was saved before (see section
@@ -220,15 +220,15 @@ def settings(SIMULATED_PARAMETERS, gs, mo):
     VERTICAL_RESOLUTIONS = {"0.5 m: the GeoTOP voxels": 0.5, "25 cm": 0.25, "10 cm": 0.1}
     # qc until Simulate is pressed, if its variograms can be simulated
     _default = "qc" if "qc" in SIMULATED_PARAMETERS else SIMULATED_PARAMETERS[0]
-    DEFAULT_SETTINGS = {"parameters": [_default], "horizontal": 25.0, "vertical": 0.5, "realisations": 10, "seed": 2026}
+    DEFAULT_SETTINGS = {"parameters": [_default], "horizontal": 25.0, "vertical": 0.5, "realizations": 10, "seed": 2026}
     _simulated = {_label: _name for _label, _name in PARAMETERS.items() if _name in SIMULATED_PARAMETERS}
     simulation_settings = (
-        mo.md("{parameters}\n\n{horizontal} &nbsp; {vertical}\n\n{realisations} &nbsp; {seed}")
+        mo.md("{parameters}\n\n{horizontal} &nbsp; {vertical}\n\n{realizations} &nbsp; {seed}")
         .batch(
             parameters=mo.ui.multiselect(_simulated, value=[_l for _l, _n in _simulated.items() if _n == _default], label="Parameters"),
             horizontal=mo.ui.dropdown(HORIZONTAL_RESOLUTIONS, value="25 m", label="Horizontal resolution"),
             vertical=mo.ui.dropdown(VERTICAL_RESOLUTIONS, value="0.5 m: the GeoTOP voxels", label="Vertical resolution"),
-            realisations=mo.ui.slider(1, 50, value=10, show_value=True, label="Realisations"),
+            realizations=mo.ui.slider(1, 50, value=10, show_value=True, label="Realizations"),
             seed=mo.ui.number(value=2026, label="Seed"),
         )
         .form(submit_button_label="Simulate", bordered=True)
@@ -291,8 +291,8 @@ def simulate(
         return frame.select("x", "y", "z").to_numpy() - _origin
 
     def _condition(model, fields, cell_positions, data_positions, scores):
-        """Unconditioned fields (realisations × cells and data samples) conditioned on the data's normal scores
-        by simple kriging of the differences between the data and the fields at the data, all realisations
+        """Unconditioned fields (realizations × cells and data samples) conditioned on the data's normal scores
+        by simple kriging of the differences between the data and the fields at the data, all realizations
         at once and the cells in chunks. Distances are taken with z stretched by the anisotropy, so that the
         model's horizontal length scale holds in all directions. The nugget counts as measurement error: it
         is on the data's diagonal only."""
@@ -301,7 +301,7 @@ def simulate(
         _data_covariance = model.covariance(
             cdist(_data, _data)
         ) + model.nugget * np.eye(len(_data))
-        # The kriging of the differences as weights of the data's covariances: data samples × realisations
+        # The kriging of the differences as weights of the data's covariances: data samples × realizations
         _weights = pinvh(_data_covariance) @ (
             scores[:, None] - fields[:, len(_cells) :].T
         )
@@ -314,13 +314,13 @@ def simulate(
         return _conditioned
 
     def _simulate(name):
-        """A parameter's realisations as an array of realisations × cells. Per domain: unconditioned fields of
+        """A parameter's realizations as an array of realizations × cells. Per domain: unconditioned fields of
         normal scores with its variogram (GSTools' randomization method), conditioned on its CPT samples by
         simple kriging with mean 0; the scores transformed back through its CPT values' distribution (beyond
         the lowest and highest CPT value, the lowest and highest), the trend added, and 10 raised to it for
         log10 parameters."""
         _definition = saved_variograms[name]
-        _simulated = np.full((settings["realisations"], cells.height), np.nan)
+        _simulated = np.full((settings["realizations"], cells.height), np.nan)
         for _d, _domain in enumerate(DOMAIN_COLORS):
             _data = conditioning.filter(
                 (pl.col("parameter") == name)
@@ -341,7 +341,7 @@ def simulate(
                         _model,
                         seed=settings["seed"] + 1000 * _r + 10 * _d + _parameter_number[name],
                     )(_all_positions, store=False)
-                    for _r in range(settings["realisations"])
+                    for _r in range(settings["realizations"])
                 ]
             )
             _scores = _condition(
@@ -373,10 +373,10 @@ def simulate(
         return _simulated
 
     def _cube(simulated):
-        """Realisations × cells as realisations × z × y × x on the regular grid, NaN outside the simulation
+        """Realizations × cells as realizations × z × y × x on the regular grid, NaN outside the simulation
         domains"""
         _shape = tuple(len(grid_coords[_axis]) for _axis in ("z", "y", "x"))
-        _cube = np.full((settings["realisations"], *_shape), np.nan, dtype=np.float32)
+        _cube = np.full((settings["realizations"], *_shape), np.nan, dtype=np.float32)
         _cube[:, grid_index["z"], grid_index["y"], grid_index["x"]] = simulated
         return _cube
 
@@ -390,7 +390,7 @@ def simulate(
         return _saved
 
     def _save(cubes, seconds):
-        """The run as NetCDF on the regular grid: each parameter per realisation, z, y and x with its
+        """The run as NetCDF on the regular grid: each parameter per realization, z, y and x with its
         definition and its P10, P50 and P90 per z, y and x, each cell's domain, and the run's definition. Written to a temporary file first, so that
         an interrupted save leaves no run behind."""
         _shape = tuple(len(grid_coords[_axis]) for _axis in ("z", "y", "x"))
@@ -400,14 +400,14 @@ def simulate(
         )
         _variables = {
             _name: (
-                ("realisation", "z", "y", "x"),
+                ("realization", "z", "y", "x"),
                 _cube,
                 {"units": UNITS[_name], "definition": json.dumps(parameter_definitions[_name], sort_keys=True, ensure_ascii=False)},
             )
             for _name, _cube in cubes.items()
         }
-        # Each parameter's P10, P50 and P90 of the realisations per grid cell, so that what reads a run for
-        # its summary need not read the realisations
+        # Each parameter's P10, P50 and P90 of the realizations per grid cell, so that what reads a run for
+        # its summary need not read the realizations
         _inside = _domains >= 0
         for _name, _cube in cubes.items():
             _percentiles = np.full((3, *_shape), np.nan, dtype=np.float32)
@@ -416,14 +416,14 @@ def simulate(
                 _variables[f"{_name}_{_p}"] = (
                     ("z", "y", "x"),
                     _values,
-                    {"units": UNITS[_name], "description": f"P{_p[1:]} of the realisations of {_name}"},
+                    {"units": UNITS[_name], "description": f"P{_p[1:]} of the realizations of {_name}"},
                 )
         _dataset = xr.Dataset(
             {
                 **_variables,
                 "domain": (("z", "y", "x"), _domains, {"flag_values": list(range(len(DOMAIN_COLORS))), "flag_meanings": " ".join(DOMAIN_COLORS), "missing_value": -1}),
             },
-            coords={"realisation": np.arange(1, settings["realisations"] + 1), **grid_coords},
+            coords={"realization": np.arange(1, settings["realizations"] + 1), **grid_coords},
             attrs={
                 "definition": json.dumps(run_definition, ensure_ascii=False),
                 "crs": "EPSG:28992 (RD New), z in m NAP",
@@ -509,7 +509,7 @@ def saved_runs(
                     "parameters": ", ".join(_definition["parameters"]),
                     "horizontal (m)": _definition["resolution"]["horizontal"],
                     "vertical (m)": _definition["resolution"]["vertical"],
-                    "realisations": _definition["realisations"],
+                    "realizations": _definition["realizations"],
                     "seed": _definition["seed"],
                     "current inputs": _current(_definition),
                     "created": _dataset.attrs["created"],
@@ -534,7 +534,7 @@ def saved_runs(
 def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
     mo.stop(saved_runs.value.is_empty(), mo.md("Select a run in the table above."))
     # The selected run: its definition, its cells (where the grid has a domain) and per parameter its
-    # realisations as realisations × cells and their statistics per cell
+    # realizations as realizations × cells and their statistics per cell
     with xr.open_dataset(SIMULATIONS_DIR / saved_runs.value["file"][0], engine="h5netcdf") as _dataset:
         run = json.loads(_dataset.attrs["definition"])
         # The domain index of each grid cell; xarray reads its missing value, -1, as NaN
@@ -542,7 +542,7 @@ def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
         _names = np.array(_dataset["domain"].attrs["flag_meanings"].split())
         _iz, _iy, _ix = np.nonzero(_domains >= 0)
         simulated = {_name: _dataset[_name].values[:, _iz, _iy, _ix] for _name in run["parameters"]}
-        # Per parameter, the P10, P50 and P90 of its realisations per cell, saved with the run
+        # Per parameter, the P10, P50 and P90 of its realizations per cell, saved with the run
         statistics = {
             _name: {_p: _dataset[f"{_name}_{_p}"].values[_iz, _iy, _ix] for _p in ("p10", "p50", "p90")}
             for _name in run["parameters"]
@@ -551,7 +551,7 @@ def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
     # Whether each parameter was simulated as its log10
     run_log = {_name: _variograms["transform"] == "log10" for _name, _variograms in run["variograms"].items()}
     # Each cell with the stratigraphic unit and lithology class of the GeoTOP voxel it lies in (a voxel's x
-    # and y are its south-west corner, its z its centre)
+    # and y are its south-west corner, its z its center)
     run_cells = (
         pl.DataFrame(
             {
@@ -580,11 +580,11 @@ def selected_run(SIMULATIONS_DIR, json, mo, np, pl, saved_runs, voxels, xr):
 @app.cell(hide_code=True)
 def view_intro(mo):
     mo.md(r"""
-    ## 2 · The realisations
+    ## 2 · The realizations
 
     The selected run's cells from above at one level, with a west–east section above and a south–north section to the
     right, as in `02`: drag the red dot in the plan to move the sections, and drag in either section to
-    change the plan's level. Colour the cells by one realisation or a statistic of all realisations per cell
+    change the plan's level. Color the cells by one realization or a statistic of all realizations per cell
     (the median, P10, P90 or their spread), or by their simulation domain. In the sections, each GeoTOP
     column the CPTs cross shows the median qc of its CPTs, in a band from their 10th to their 90th
     percentile; hover over a CPT in the plan for its own qc, and over a cell for its value.
@@ -601,7 +601,7 @@ def view_controls(PARAMETERS, mo, run, simulated):
             "parameter": mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter"),
             "shown": mo.ui.dropdown(
                 {"Median (P50)": "p50", "P10": "p10", "P90": "p90", "Spread (P90 against P10)": "spread"}
-                | {f"Realisation {_r + 1}": f"r{_r}" for _r in range(run["realisations"])},
+                | {f"Realization {_r + 1}": f"r{_r}" for _r in range(run["realizations"])},
                 value="Median (P50)",
                 label="Show",
             ),
@@ -619,20 +619,20 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
 
         _esm = Path(mo.notebook_dir()) / "cross_sections.js"
         # Per cell: x, y, z and its indices in units and lithologies, which hold each stratigraphic unit's
-        # code, name and colour and each lithology class's name and colour; the cells' size along x, y and z
+        # code, name and color and each lithology class's name and color; the cells' size along x, y and z
         voxels = traitlets.List().tag(sync=True)
         cell = traitlets.Dict().tag(sync=True)
         units = traitlets.List().tag(sync=True)
         lithologies = traitlets.List().tag(sync=True)
         # Per CPT: its x and y, and its qc (MPa) per sample level z
         cpts = traitlets.List().tag(sync=True)
-        # The domains' names and colours, and each cell's index in them
+        # The domains' names and colors, and each cell's index in them
         domains = traitlets.List().tag(sync=True)
         domain_of = traitlets.List().tag(sync=True)
-        # Per cell, a value as float32 bytes, on a colour scale {label, log, min, max, scheme}
+        # Per cell, a value as float32 bytes, on a color scale {label, log, min, max, scheme}
         values = traitlets.Bytes().tag(sync=True)
         value_scale = traitlets.Dict().tag(sync=True)
-        # What the cells can be coloured by, and are: "value" or "domain"
+        # What the cells can be colored by, and are: "value" or "domain"
         color_modes = traitlets.List(["value", "domain"]).tag(sync=True)
         color_by = traitlets.Unicode("value").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
@@ -644,8 +644,8 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
 
 @app.cell(hide_code=True, expand_output=True)
 def cross_sections(CrossSections, DOMAIN_COLORS, pl, run, run_cells, samples):
-    # Made once per selected run; section_values colours it. The stratigraphic units from the top down and the
-    # lithology classes alphabetically, for the cell under the pointer; their colours are not shown.
+    # Made once per selected run; section_values colors it. The stratigraphic units from the top down and the
+    # lithology classes alphabetically, for the cell under the pointer; their colors are not shown.
     _units = run_cells.group_by("stratigraphic_unit").agg(pl.max("z")).sort("z", descending=True)["stratigraphic_unit"].to_list()
     _lithologies = run_cells["grondsoort"].unique().sort().to_list()
     _cpts = samples.sort("z", descending=True).group_by("bro_id", maintain_order=True).agg(pl.first("x", "y"), "z", "qc")
@@ -697,13 +697,13 @@ def section_values(
     statistics,
     view_controls,
 ):
-    # The cross-sections coloured by what view_controls shows: a realisation, a statistic or the spread
-    # (P90 / P10 for log10 parameters, P90 − P10 otherwise), on a colour scale over its 2nd to 98th percentile,
+    # The cross-sections colored by what view_controls shows: a realization, a statistic or the spread
+    # (P90 / P10 for log10 parameters, P90 − P10 otherwise), on a color scale over its 2nd to 98th percentile,
     # logarithmic for log10 parameters and the spread of them
     _name, _shown = view_controls.value["parameter"], view_controls.value["shown"]
     _log = run_log[_name]
     if _shown.startswith("r"):
-        _values, _label = simulated[_name][int(_shown[1:])], f"{_name} realisation {int(_shown[1:]) + 1} ({UNITS[_name]})"
+        _values, _label = simulated[_name][int(_shown[1:])], f"{_name} realization {int(_shown[1:]) + 1} ({UNITS[_name]})"
     elif _shown == "spread":
         _p10, _p90 = statistics[_name]["p10"], statistics[_name]["p90"]
         _values, _label = (_p90 / _p10, f"{_name} P90 / P10") if _log else (_p90 - _p10, f"{_name} P90 − P10 ({UNITS[_name]})")
@@ -726,9 +726,9 @@ def check_intro(mo):
     mo.md(r"""
     ## 3 · Checks
 
-    The realisations should reproduce each domain's distribution of the CPT values, and near a CPT they
-    should follow it. The table compares the percentiles of the CPT samples with those of all realisations
-    per domain. The chart shows, for one CPT, the realisations in the cells it lies in: each realisation a
+    The realizations should reproduce each domain's distribution of the CPT values, and near a CPT they
+    should follow it. The table compares the percentiles of the CPT samples with those of all realizations
+    per domain. The chart shows, for one CPT, the realizations in the cells it lies in: each realization a
     thin line, the median a thick one, P10 to P90 shaded, and the CPT samples as dots.
     """)
     return
@@ -749,7 +749,7 @@ def distribution(
         return dict(zip(("P10", "P50", "P90"), np.nanpercentile(values, [10, 50, 90])))
 
 
-    # Per parameter and domain of the selected run, the percentiles of the CPT samples and of all realisations
+    # Per parameter and domain of the selected run, the percentiles of the CPT samples and of all realizations
     _rows = []
     for _name in simulated:
         for _domain in run_cells["domain"].unique(maintain_order=True):
@@ -758,7 +758,7 @@ def distribution(
             _rows.append(
                 {"parameter": _name, "domain": _domain, "unit": UNITS[_name]}
                 | {f"CPTs {_k}": round(_v, 3) for _k, _v in _percentiles(_data).items()}
-                | {f"realisations {_k}": round(_v, 3) for _k, _v in _percentiles(simulated[_name][:, _index]).items()}
+                | {f"realizations {_k}": round(_v, 3) for _k, _v in _percentiles(simulated[_name][:, _index]).items()}
             )
     mo.ui.table(
         pl.DataFrame(_rows),
@@ -802,10 +802,10 @@ def cpt_check(
         ((pl.col("x") - _x).abs() <= run["resolution"]["horizontal"] / 2) & ((pl.col("y") - _y).abs() <= run["resolution"]["horizontal"] / 2)
     ).sort("z")
     _index = _column["cell"].to_numpy()
-    _realisations = pl.DataFrame(
+    _realizations = pl.DataFrame(
         {
-            "z": np.tile(_column["z"].to_numpy(), run["realisations"]),
-            "realisation": np.repeat(np.arange(run["realisations"]) + 1, len(_index)),
+            "z": np.tile(_column["z"].to_numpy(), run["realizations"]),
+            "realization": np.repeat(np.arange(run["realizations"]) + 1, len(_index)),
             "value": simulated[_name][:, _index].ravel(),
         }
     )
@@ -817,9 +817,9 @@ def cpt_check(
     _x_scale = alt.Scale(type="log" if _log else "linear")
     _title = f"{_name} ({UNITS[_name]})"
     _lines = (
-        alt.Chart(_realisations)
+        alt.Chart(_realizations)
         .mark_line(strokeWidth=0.6, opacity=0.5, color="#4c78a8")
-        .encode(x=alt.X("value:Q", title=_title, scale=_x_scale), y=alt.Y("z:Q", title="z (m NAP)"), detail="realisation:N", order="z:Q")
+        .encode(x=alt.X("value:Q", title=_title, scale=_x_scale), y=alt.Y("z:Q", title="z (m NAP)"), detail="realization:N", order="z:Q")
     )
     _area = alt.Chart(_band).mark_area(opacity=0.2, color="#4c78a8", orient="horizontal").encode(x="p10:Q", x2="p90:Q", y="z:Q")
     _median = alt.Chart(_band).mark_line(color="#1f3b63", strokeWidth=2).encode(x="p50:Q", y="z:Q", order="z:Q")
@@ -843,9 +843,9 @@ def simulation_intro(mo):
     ## 4 · How a run is simulated and saved
 
     Simulate saves one run in `data/simulations/` as soon as it is done, as NetCDF: each chosen parameter's
-    realisations on the regular grid (realisation × z × y × x, in RD New and m NAP, NaN outside the
+    realizations on the regular grid (realization × z × y × x, in RD New and m NAP, NaN outside the
     simulation domains) with their P10, P50 and P90 per cell, each cell's domain, and the run's definition: the parameters' variograms, the
-    simulation domains, the resolution, the number of realisations and the seed. Its name ends in a hash of
+    simulation domains, the resolution, the number of realizations and the seed. Its name ends in a hash of
     that definition, so pressing Simulate again with the same definition simulates nothing and selects the
     run saved before. A parameter simulated before with the same definition, in another run, is copied
     from it instead of simulated again.
@@ -861,12 +861,12 @@ def grid(DEFAULT_SETTINGS, mo, np, pl, simulation_settings, voxels):
 
 
     def _offsets(name, voxel_size, cell_size, start):
-        """The offsets of the cell centres in a voxel from its coordinate, along one axis"""
+        """The offsets of the cell centers in a voxel from its coordinate, along one axis"""
         return pl.DataFrame({name: start + (np.arange(round(voxel_size / cell_size)) + 0.5) * cell_size})
 
 
     # The simulation cells: each voxel divided into cells of the horizontal resolution square and the vertical
-    # resolution high, at the cells' centres. A voxel's x and y are its south-west corner, its z its centre.
+    # resolution high, at the cells' centers. A voxel's x and y are its south-west corner, its z its center.
     cells = (
         voxels.rename({"x": "voxel_x", "y": "voxel_y", "z": "voxel_z"})
         .join(_offsets("dx", 100.0, settings["horizontal"], 0.0), how="cross")
@@ -940,13 +940,13 @@ def simulation_runs(
 
 
     def _parameter_definition(name):
-        """Everything that decides a parameter's realisations: the method's version, the grid, the number of
-        realisations and the seed, the parameter's saved variograms and the simulation domains"""
+        """Everything that decides a parameter's realizations: the method's version, the grid, the number of
+        realizations and the seed, the parameter's saved variograms and the simulation domains"""
         return {
             "version": SIMULATION_VERSION,
             "parameter": name,
             "resolution": {"horizontal": settings["horizontal"], "vertical": settings["vertical"]},
-            "realisations": settings["realisations"],
+            "realizations": settings["realizations"],
             "seed": settings["seed"],
             "variograms": {_k: _v for _k, _v in saved_variograms[name].items() if _k not in SAVE_DATES},
             "simulation_domains": {_k: _v for _k, _v in domain_definition.items() if _k != "saved"},
