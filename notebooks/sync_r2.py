@@ -75,8 +75,9 @@ def intro(mo):
     - `soil_model_<height>cm.json`: the decisions behind it: the selection of `01`, and the simulation domains,
       variograms, resolution, realizations and seed of the run, and the settings of its classification.
     - `cpts.parquet`: the CPT readings as `01` read them from the BRO.
-    - `cpts_interpreted_<height>cm.parquet` and `sbtn_volumes_<height>cm.parquet`: the GeoParquet BimDataFrames of
-      `06_bimdataframes.py`: the CPTs' layers as cylinders and the SBTn volumes of the run.
+    - `cpts_interpreted_<height>cm.parquet`, `sbtn_volumes_<height>cm.parquet` and
+      `rvt_advanced_sample_combined_arch_str.parquet`: the GeoParquet BimDataFrames of `06_bimdataframes.py`: the CPTs'
+      layers as cylinders, the SBTn volumes of the run and Revit's advanced sample project, all in the site's CRS.
 
     The 10 m / 25 cm run is selected to start with: section 4 of `05_cpt_classification.py` shows that 10 cm adds no
     support away from the CPTs.
@@ -314,9 +315,10 @@ def r2_files(
     _prefix = r2_prefix.value.strip("/")
     _interpreted = DATA_DIR / "bimdataframes" / f"cpts_interpreted_{SYNC_HEIGHT}.parquet"
     _volumes = DATA_DIR / "bimdataframes" / f"sbtn_volumes_{saved_runs.value['run'][0].removesuffix('.nc')}.parquet"
+    _revit = DATA_DIR / "bimdataframes" / "rvt_advanced_sample_combined_arch_str.parquet"
     mo.stop(
-        not (_interpreted.exists() and _volumes.exists()),
-        mo.md(f"Select this run in `06_bimdataframes.py` first, which writes `{_interpreted.name}` and `{_volumes.name}`."),
+        not (_interpreted.exists() and _volumes.exists() and _revit.exists()),
+        mo.md(f"Select this run in `06_bimdataframes.py` first, which writes `{_interpreted.name}`, `{_volumes.name}` and `{_revit.name}`."),
     )
     _zarr = {
         f"{_prefix}/{soil_model_store.name}/{_path.relative_to(soil_model_store).as_posix()}": _path
@@ -328,6 +330,7 @@ def r2_files(
         f"{_prefix}/cpts.parquet": DATA_DIR / "cpts.parquet",
         f"{_prefix}/{_interpreted.name}": _interpreted,
         f"{_prefix}/sbtn_volumes_{SYNC_HEIGHT}.parquet": _volumes,
+        f"{_prefix}/{_revit.name}": _revit,
     }
     r2_uploads = _zarr | _files
     push_button = mo.ui.run_button(label=f"Push {len(r2_uploads)} files to R2")

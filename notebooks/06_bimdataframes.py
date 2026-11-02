@@ -496,7 +496,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def revit_model(bpl, pl, site_crs):
+def revit_model(BIMDATAFRAMES_DIR, bpl, pl, site_crs):
     # Revit's advanced sample project, architecture and structure, placed in Amsterdam Noord, in the site's CRS, and
     # its piles and pile caps
     revit_bimdf = bpl.to_crs(
@@ -506,6 +506,8 @@ def revit_model(bpl, pl, site_crs):
         site_crs,
     )
     foundations_bimdf = revit_bimdf.filter(pl.col("class") == "Structural Foundations")
+    BIMDATAFRAMES_DIR.mkdir(exist_ok=True)
+    revit_bimdf.write_parquet(BIMDATAFRAMES_DIR / "rvt_advanced_sample_combined_arch_str.parquet")
     return foundations_bimdf, revit_bimdf
 
 
