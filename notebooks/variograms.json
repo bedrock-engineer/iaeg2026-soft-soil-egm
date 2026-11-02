@@ -2,9 +2,9 @@
   "qc": {
     "transform": "log10",
     "detrend": true,
-    "model": "Exponential",
     "domains": {
       "NAWA": {
+        "model": "Exponential",
         "nugget": 0.0,
         "len_scale": {
           "horizontal": 100.0,
@@ -16,10 +16,11 @@
         }
       },
       "NIHO": {
-        "nugget": 0.0,
+        "model": "Gaussian",
+        "nugget": 0.17,
         "len_scale": {
-          "horizontal": 40.0,
-          "vertical": 0.95
+          "horizontal": 45.0,
+          "vertical": 0.85
         },
         "trend": {
           "intercept": -0.4471445213604969,
@@ -27,10 +28,11 @@
         }
       },
       "NAWO": {
-        "nugget": 0.1,
+        "model": "Gaussian",
+        "nugget": 0.34,
         "len_scale": {
-          "horizontal": 125.0,
-          "vertical": 1.6
+          "horizontal": 160.0,
+          "vertical": 2.0
         },
         "trend": {
           "intercept": -1.097096698149178,
@@ -38,10 +40,11 @@
         }
       },
       "BXWISIKO": {
-        "nugget": 0.0,
+        "model": "Gaussian",
+        "nugget": 0.28,
         "len_scale": {
-          "horizontal": 85.0,
-          "vertical": 0.55
+          "horizontal": 115.0,
+          "vertical": 0.65
         },
         "trend": {
           "intercept": 2.1387308580459656,
@@ -49,10 +52,11 @@
         }
       },
       "KRBXDE": {
-        "nugget": 0.0,
+        "model": "Gaussian",
+        "nugget": 0.23,
         "len_scale": {
-          "horizontal": 140.0,
-          "vertical": 1.2
+          "horizontal": 175.0,
+          "vertical": 1.35
         },
         "trend": {
           "intercept": 0.8826968586588004,
@@ -60,10 +64,11 @@
         }
       },
       "EE": {
-        "nugget": 0.0,
+        "model": "Gaussian",
+        "nugget": 0.06,
         "len_scale": {
           "horizontal": 50.0,
-          "vertical": 1.75
+          "vertical": 1.4
         },
         "trend": {
           "intercept": 0.1784353616913975,
@@ -72,8 +77,6 @@
       }
     }
   },
-  "saved": "2026-11-02T01:48:38",
-  "simulation_domains_saved": "2026-11-02T01:30:32",
   "rf": {
     "transform": "none",
     "detrend": true,
@@ -143,6 +146,86 @@
         "trend": {
           "intercept": -3.58530666679102,
           "slope": -0.19567733421620803
+        }
+      }
+    }
+  },
+  "saved": "2026-11-02T02:15:01",
+  "simulation_domains_saved": "2026-11-02T01:30:32",
+  "fs": {
+    "transform": "log10",
+    "detrend": true,
+    "domains": {
+      "NAWA": {
+        "model": "Exponential",
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 105.0,
+          "vertical": 1.4
+        },
+        "trend": {
+          "intercept": -1.6626768051910579,
+          "slope": -0.015452870064337708
+        }
+      },
+      "NIHO": {
+        "model": "Gaussian",
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 45.0,
+          "vertical": 0.55
+        },
+        "trend": {
+          "intercept": -1.7439965565867293,
+          "slope": -0.05139106152064884
+        }
+      },
+      "NAWO": {
+        "model": "Spherical",
+        "nugget": 0.19,
+        "len_scale": {
+          "horizontal": 115.0,
+          "vertical": 6.0
+        },
+        "trend": {
+          "intercept": -2.3420021002484774,
+          "slope": -0.05149259919283717
+        }
+      },
+      "BXWISIKO": {
+        "model": "Gaussian",
+        "nugget": 0.31,
+        "len_scale": {
+          "horizontal": 115.0,
+          "vertical": 0.85
+        },
+        "trend": {
+          "intercept": -0.5401537471191415,
+          "slope": 0.026957682911527368
+        }
+      },
+      "KRBXDE": {
+        "model": "Gaussian",
+        "nugget": 0.26,
+        "len_scale": {
+          "horizontal": 215.0,
+          "vertical": 1.8
+        },
+        "trend": {
+          "intercept": -0.9272595425603606,
+          "slope": -0.005182952612663127
+        }
+      },
+      "EE": {
+        "model": "Spherical",
+        "nugget": 0.0,
+        "len_scale": {
+          "horizontal": 70.0,
+          "vertical": 2.3
+        },
+        "trend": {
+          "intercept": -2.587775158515103,
+          "slope": -0.04341668304274858
         }
       }
     }
