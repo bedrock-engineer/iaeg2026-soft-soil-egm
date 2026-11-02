@@ -3,9 +3,10 @@
 // so the ground surface is on their outer side. Drag in the plan to move the sections, and drag in a
 // section to change the plan's level. CPTs show as dots in the plan and, in the sections, as one qc
 // profile per GeoTOP column they cross: the median of the column's CPTs in a band from their 10th to
-// their 90th percentile. A CPT under the pointer in the plan shows its own qc. The voxels are GeoTOP's
-// or smaller cells of them (the cell trait), colored by their simulation domain, stratigraphic unit,
-// lithology class or a value (the values trait), whichever color_modes offers.
+// their 90th percentile. A CPT under the pointer in the plan shows its own qc, and clicking it selects
+// it (the selected_cpt trait), which moves the sections through it and keeps showing its qc. The voxels
+// are GeoTOP's or smaller cells of them (the cell trait), colored by their simulation domain,
+// stratigraphic unit, lithology class or a value (the values trait), whichever color_modes offers.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
@@ -22,6 +23,7 @@ const RED = "#d62728";
 const BLUE = "#1f77b4";
 const CPT_BLUE = "#08519c";
 const CPT_PICK_PX = 6;
+const CLICK_PX = 4; // how far a press may move and still be a click
 /** What the voxels can be colored by, with its button's label; "value" takes value_scale's label */
 const COLOR_BY = { domain: "Simulation domain", unit: "Stratigraphic unit", lithology: "Lithology class", value: "Value" };
 /** Color schemes for values, from low to high */
@@ -141,6 +143,7 @@ function render({ model, el }) {
   let hover = null;
   let hoverCpt = null;
   let dragging = null;
+  let pressed = null;
 
   // The voxels by position, their size and levels, and the model's extent: x and y are a voxel's
   // south-west corner, z its center
@@ -351,16 +354,20 @@ function render({ model, el }) {
       }
     });
 
-    // The CPT under the pointer in the plan: its own qc, in the sections that cross it
+    // The selected CPT and the one under the pointer in the plan: their own qc, in the sections that
+    // cross them
+    const selected = cpts.find((cpt) => cpt.bro_id === model.get("selected_cpt"));
     const hovered = cpts[hoverCpt];
-    if (hovered) {
-      dot(X(hovered.x), Y(hovered.y), 4, CPT_BLUE, "white");
-      const trace = hovered.z.map((z, k) => ({ z, p50: hovered.qc[k] }));
-      if (cellY(hovered.y) === y0) {
-        clipped(top, () => drawTrace(trace, atTop(geotopColumn(hovered.x))));
+    for (const cpt of [selected, hovered]) {
+      if (!cpt) {
+        continue;
       }
-      if (cellX(hovered.x) === x0) {
-        clipped(side, () => drawTrace(trace, atSide(geotopColumn(hovered.y))));
+      const trace = cpt.z.map((z, k) => ({ z, p50: cpt.qc[k] }));
+      if (cellY(cpt.y) === y0) {
+        clipped(top, () => drawTrace(trace, atTop(geotopColumn(cpt.x))));
+      }
+      if (cellX(cpt.x) === x0) {
+        clipped(side, () => drawTrace(trace, atSide(geotopColumn(cpt.y))));
       }
     }
 
@@ -385,6 +392,13 @@ function render({ model, el }) {
       [sideZ(z0), side.y + side.h],
     ]) {
       dot(hx, hy, 6, RED, "white");
+    }
+    // The selected CPT and the one under the pointer, over the handles
+    if (selected) {
+      dot(X(selected.x), Y(selected.y), 5, CPT_BLUE, "white");
+    }
+    if (hovered) {
+      dot(X(hovered.x), Y(hovered.y), 4, CPT_BLUE, "white");
     }
 
     // The axes
@@ -426,6 +440,7 @@ function render({ model, el }) {
       `Plan at z = ${z0.toFixed(dz < VOXEL ? 2 : 1)} m NAP`,
       `W–E section at y = ${y0}–${y0 + dy}`,
       `S–N section at x = ${x0}–${x0 + dx}`,
+      ...(selected ? [`Selected CPT ${selected.bro_id}`] : []),
     ];
     if (hovered) {
       lines.push(
@@ -515,7 +530,8 @@ function render({ model, el }) {
     const cpt = document.createElement("span");
     cpt.textContent =
       `● CPT. In the sections, per GeoTOP column: the median qc of its CPTs, in a band from their 10th ` +
-      `to 90th percentile (${COLUMN / QC_METERS} MPa per column width). Hover over a CPT in the plan for its own qc.`;
+      `to 90th percentile (${COLUMN / QC_METERS} MPa per column width). Hover over a CPT in the plan for its own qc, ` +
+      `and click it to select it.`;
     legend.replaceChildren(...items, cpt);
   }
 
@@ -532,6 +548,20 @@ function render({ model, el }) {
       return { panel: "side", x: model.get("x"), y: cellY(yAt(py)), z: level(zAtSide(px)) };
     }
     return null;
+  }
+
+  // The index of the CPT nearest a point in the plan, within CPT_PICK_PX, or null
+  function cptAt(px, py) {
+    let nearest = CPT_PICK_PX;
+    let found = null;
+    model.get("cpts").forEach((cpt, i) => {
+      const distance = Math.hypot(X(cpt.x) - px, Y(cpt.y) - py);
+      if (distance < nearest) {
+        nearest = distance;
+        found = i;
+      }
+    });
+    return found;
   }
 
   // The position changes here while a handle is dragged, and goes to Python when it is let go
@@ -560,32 +590,39 @@ function render({ model, el }) {
     const spot = locate(px, py);
     canvas.style.cursor = { plan: "move", top: "ns-resize", side: "ew-resize" }[dragging ?? spot?.panel] ?? "default";
     hover = spot ? (grid.at.get(`${spot.x},${spot.y},${spot.z}`) ?? null) : null;
-    // The CPT nearest the pointer in the plan, within CPT_PICK_PX
-    hoverCpt = null;
-    if (spot?.panel === "plan" && !dragging) {
-      let nearest = CPT_PICK_PX;
-      model.get("cpts").forEach((cpt, i) => {
-        const distance = Math.hypot(X(cpt.x) - px, Y(cpt.y) - py);
-        if (distance < nearest) {
-          nearest = distance;
-          hoverCpt = i;
-        }
-      });
+    hoverCpt = spot?.panel === "plan" && !dragging ? cptAt(px, py) : null;
+    if (hoverCpt !== null) {
+      canvas.style.cursor = "pointer";
     }
     draw();
   }
 
   canvas.addEventListener("pointerdown", (event) => {
     const bounds = canvas.getBoundingClientRect();
-    const spot = locate(event.clientX - bounds.left, event.clientY - bounds.top);
+    const [px, py] = [event.clientX - bounds.left, event.clientY - bounds.top];
+    const spot = locate(px, py);
     if (!spot) {
       return;
     }
+    pressed = spot.panel === "plan" ? { cpt: cptAt(px, py), px, py } : null;
     dragging = spot.panel;
     canvas.setPointerCapture(event.pointerId);
     move(event);
   });
   canvas.addEventListener("pointermove", move);
+  // A press on a CPT that is let go in place selects it, with the sections through it
+  canvas.addEventListener("pointerup", (event) => {
+    const bounds = canvas.getBoundingClientRect();
+    if (pressed?.cpt != null && Math.hypot(event.clientX - bounds.left - pressed.px, event.clientY - bounds.top - pressed.py) <= CLICK_PX) {
+      const cpt = model.get("cpts")[pressed.cpt];
+      set({
+        selected_cpt: cpt.bro_id,
+        x: clamp(cellX(cpt.x), grid.xmin, grid.xmax - grid.dx),
+        y: clamp(cellY(cpt.y), grid.ymin, grid.ymax - grid.dy),
+      });
+    }
+    pressed = null;
+  });
   for (const name of ["pointerup", "pointercancel"]) {
     canvas.addEventListener(name, () => {
       if (dragging) {
@@ -602,7 +639,7 @@ function render({ model, el }) {
     }
   });
 
-  for (const name of ["x", "y", "z", "domain_of", "cpts"]) {
+  for (const name of ["x", "y", "z", "selected_cpt", "domain_of", "cpts"]) {
     model.on(`change:${name}`, draw);
   }
   for (const name of ["domains", "units", "lithologies", "color_by", "color_modes", "value_scale"]) {

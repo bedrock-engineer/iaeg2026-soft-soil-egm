@@ -557,6 +557,8 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         domain_of = traitlets.List().tag(sync=True)
         # What the voxels are colored by: "domain", "unit" or "lithology"
         color_by = traitlets.Unicode("domain").tag(sync=True)
+        # The CPT clicked in the plan, by its BRO ID
+        selected_cpt = traitlets.Unicode("").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
         y = traitlets.Float().tag(sync=True)
         z = traitlets.Float().tag(sync=True)

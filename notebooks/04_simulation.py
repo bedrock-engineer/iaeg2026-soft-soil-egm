@@ -652,7 +652,9 @@ def view_intro(mo):
     their spread, P90 / P10, or by their simulation domain, stratigraphic unit or GeoTOP lithology class.
     In the sections, each GeoTOP column the CPTs cross
     shows the median qc of its CPTs, in a band from their 10th to their 90th percentile; hover over a CPT
-    in the plan for its own qc, and over a cell for its value.
+    in the plan for its own qc, and over a cell for its value. Near a CPT the realizations should follow it:
+    click a CPT in the plan to show below the sections the realizations in the cells it lies in, each realization
+    a thin line, the median a thick one, P10 to P90 shaded, and the CPT samples as dots.
     """)
     return
 
@@ -678,10 +680,12 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
         # Per cell, a value as float32 bytes, on a color scale {label, log, min, max, scheme}
         values = traitlets.Bytes().tag(sync=True)
         value_scale = traitlets.Dict().tag(sync=True)
-        # What the cells are colored by: "value", "domain" or "unit", set by the Color by dropdown, so the
+        # What the cells are colored by: "value", "domain", "unit" or "lithology", set by Color by, so the
         # widget offers no buttons of its own
         color_modes = traitlets.List([]).tag(sync=True)
         color_by = traitlets.Unicode("value").tag(sync=True)
+        # The CPT clicked in the plan, by its BRO ID
+        selected_cpt = traitlets.Unicode("").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
         y = traitlets.Float().tag(sync=True)
         z = traitlets.Float().tag(sync=True)
@@ -712,6 +716,7 @@ def cross_sections(
     DOMAIN_COLORS,
     LITH_COLORS,
     STRAT_COLORS,
+    mo,
     pl,
     run,
     run_cells,
@@ -744,6 +749,8 @@ def cross_sections(
         .row(0)
     )
     _levels = run_cells["z"].unique().to_list()
+    # The CPT with the most samples is selected first
+    _selected = samples.group_by("bro_id").len().sort("len", "bro_id")["bro_id"][-1]
     section_view = CrossSections(
         voxels=_corners.drop("domain").rows(),
         cell=_size,
@@ -755,9 +762,11 @@ def cross_sections(
         x=_start[0],
         y=_start[1],
         z=min(_levels, key=lambda _z: abs(_z - samples["z"].median())),
+        selected_cpt=_selected,
     )
-    section_view
-    return (section_view,)
+    cross_sections = mo.ui.anywidget(section_view)
+    cross_sections
+    return cross_sections, section_view
 
 
 @app.cell(hide_code=True)
@@ -789,69 +798,34 @@ def section_values(UNITS, color_by, np, run_log, section_view, statistics):
 
 
 @app.cell(hide_code=True)
-def check_intro(mo):
-    mo.md(r"""
-    ## 3 · Checks
+def selected_cpt(mo):
+    # The CPT clicked in the cross-sections
+    get_selected_cpt, set_selected_cpt = mo.state(None)
+    return get_selected_cpt, set_selected_cpt
 
-    The realizations should reproduce each domain's distribution of the CPT values, and near a CPT they
-    should follow it. The table compares the percentiles of the CPT samples with those of all realizations
-    per domain. The chart shows, for one CPT, the realizations in the cells it lies in: each realization a
-    thin line, the median a thick one, P10 to P90 shaded, and the CPT samples as dots.
-    """)
+
+@app.cell(hide_code=True)
+def follow_selected_cpt(cross_sections, get_selected_cpt, set_selected_cpt):
+    # cross_sections also changes when the sections move; only another CPT goes on to what shows it
+    if cross_sections.selected_cpt != get_selected_cpt():
+        set_selected_cpt(cross_sections.selected_cpt)
     return
 
 
 @app.cell(hide_code=True)
-def distribution(
-    DOMAIN_COLORS,
-    UNITS,
-    mo,
-    np,
-    pl,
-    run_cells,
-    samples,
-    simulated,
-):
-    def _percentiles(values):
-        return dict(zip(("P10", "P50", "P90"), np.nanpercentile(values, [10, 50, 90])))
-
-
-    # Per parameter and domain of the selected run, the percentiles of the CPT samples and of all realizations
-    _rows = []
-    for _name in simulated:
-        for _domain in run_cells["domain"].unique(maintain_order=True):
-            _index = run_cells.filter(pl.col("domain") == _domain)["cell"].to_numpy()
-            _data = samples.filter((pl.col("domain") == _domain) & (pl.col(_name) > 0))[_name].to_numpy()
-            _rows.append(
-                {"parameter": _name, "domain": _domain, "unit": UNITS[_name]}
-                | {f"CPTs {_k}": round(_v, 3) for _k, _v in _percentiles(_data).items()}
-                | {f"realizations {_k}": round(_v, 3) for _k, _v in _percentiles(simulated[_name][:, _index]).items()}
-            )
-    mo.ui.table(
-        pl.DataFrame(_rows),
-        selection=None,
-        style_cell=lambda _row, column, value: {"backgroundColor": DOMAIN_COLORS.get(value, "#cccccc")} if column == "domain" else {},
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def check_cpt(PARAMETERS, mo, pl, samples, simulated):
-    # The CPTs, with the cells they lie in
-    _cpts = samples.group_by("bro_id").agg(pl.first("x"), pl.first("y"), pl.len().alias("samples")).sort("bro_id")
-    check_cpt = mo.ui.dropdown(_cpts["bro_id"].to_list(), value=_cpts.sort("samples")["bro_id"][-1], label="CPT", searchable=True)
+def check_parameter(PARAMETERS, mo, simulated):
     _labels = {_name: _label for _label, _name in PARAMETERS.items()}
     check_parameter = mo.ui.dropdown({_labels[_n]: _n for _n in simulated}, value=_labels[next(iter(simulated))], label="Parameter")
-    mo.hstack([check_cpt, check_parameter], justify="start", gap=2)
-    return check_cpt, check_parameter
+    check_parameter
+    return (check_parameter,)
 
 
 @app.cell(hide_code=True)
 def cpt_check(
     UNITS,
     alt,
-    check_cpt,
     check_parameter,
+    get_selected_cpt,
     mo,
     np,
     pl,
@@ -864,7 +838,9 @@ def cpt_check(
 ):
     _name = check_parameter.value
     _log = run_log[_name]
-    _cpt = samples.filter(pl.col("bro_id") == check_cpt.value)
+    _bro_id = get_selected_cpt()
+    mo.stop(_bro_id is None, mo.md("Click a CPT in the plan above."))
+    _cpt = samples.filter(pl.col("bro_id") == _bro_id)
     _x, _y = _cpt["x"][0], _cpt["y"][0]
     # The column of cells the CPT lies in
     _column = run_cells.filter(
@@ -899,9 +875,54 @@ def cpt_check(
     )
     mo.vstack(
         [
-            mo.md(f"{check_cpt.value} at x = {_x:.0f}, y = {_y:.0f}, in the column of cells of {run['resolution']['horizontal']:g} × {run['resolution']['horizontal']:g} m around it."),
+            mo.md(f"{_bro_id} at x = {_x:.0f}, y = {_y:.0f}, in the column of cells of {run['resolution']['horizontal']:g} × {run['resolution']['horizontal']:g} m around it."),
             (_area + _lines + _median + _points).properties(width=420, height=440),
         ]
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def check_intro(mo):
+    mo.md(r"""
+    ## 3 · Checks
+
+    The realizations should reproduce each domain's distribution of the CPT values. The table compares the
+    percentiles of the CPT samples with those of all realizations per domain.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def distribution(
+    DOMAIN_COLORS,
+    UNITS,
+    mo,
+    np,
+    pl,
+    run_cells,
+    samples,
+    simulated,
+):
+    def _percentiles(values):
+        return dict(zip(("P10", "P50", "P90"), np.nanpercentile(values, [10, 50, 90])))
+
+
+    # Per parameter and domain of the selected run, the percentiles of the CPT samples and of all realizations
+    _rows = []
+    for _name in simulated:
+        for _domain in run_cells["domain"].unique(maintain_order=True):
+            _index = run_cells.filter(pl.col("domain") == _domain)["cell"].to_numpy()
+            _data = samples.filter((pl.col("domain") == _domain) & (pl.col(_name) > 0))[_name].to_numpy()
+            _rows.append(
+                {"parameter": _name, "domain": _domain, "unit": UNITS[_name]}
+                | {f"CPTs {_k}": round(_v, 3) for _k, _v in _percentiles(_data).items()}
+                | {f"realizations {_k}": round(_v, 3) for _k, _v in _percentiles(simulated[_name][:, _index]).items()}
+            )
+    mo.ui.table(
+        pl.DataFrame(_rows),
+        selection=None,
+        style_cell=lambda _row, column, value: {"backgroundColor": DOMAIN_COLORS.get(value, "#cccccc")} if column == "domain" else {},
     )
     return
 
