@@ -14,7 +14,7 @@ Hyparquet reads the mesh/material columns and decodes the GeoParquet WKB coordin
 The runtime adapter creates native viewer objects and matching per-element map footprints.
 Paired site and geographic vertices recover the ECEF-to-site transform for the
 OpenStreetMap ground plane and surrounding PDOK 3D BAG buildings.
-The building outline is unioned in RD New metres at 1 mm horizontal precision;
+The building outline is unioned in RD New meters at 1 mm horizontal precision;
 its largest polygon is used for the map outline and hiding overlapping context buildings.
 No checked-in model data, generated input geometry files, local data folder, or Python
 process is required.

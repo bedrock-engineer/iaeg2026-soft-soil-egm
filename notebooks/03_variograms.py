@@ -26,9 +26,11 @@ def _(mo):
     distance: vertically along a CPT, and horizontally between CPTs at one level. `04` uses them to
     simulate the parameter in each domain's voxels.
 
-    Reads the simulation domains that `02_simulation_domains.py` saves: their definition in
-    `notebooks/simulation_domains.json` and the 0.5 m CPT samples with their domain in
-    `data/sample_domains.parquet`. The variograms are of **normal scores**: per domain, the parameter
+    Reads the simulation domains that `02_simulation_domains.py` saves, in
+    `notebooks/simulation_domains.json` and `data/voxel_domains.parquet`, and the CPT readings in
+    `data/cpts.parquet`. The readings are resampled at the sample height chosen below. Samples and variograms are
+    saved per height, and `04` can simulate at each saved height: it conditions on that height's samples with that
+    height's variograms, since both only hold at their own height. The variograms are of **normal scores**: per domain, the parameter
     (log₁₀ of qc and fs), optionally without its linear trend with depth, ranked and mapped onto a
     standard normal distribution. Their sill is therefore 1.
     """)
@@ -70,26 +72,45 @@ def inputs(Path, mo):
     DOMAINS_JSON = Path(mo.notebook_dir()) / "simulation_domains.json"
     VARIOGRAMS_JSON = Path(mo.notebook_dir()) / "variograms.json"
     domains_json = mo.watch.file(DOMAINS_JSON)
-    samples_parquet = mo.watch.file(DATA_DIR / "sample_domains.parquet")
+    voxels_parquet = mo.watch.file(DATA_DIR / "voxel_domains.parquet")
+    cpts_parquet = mo.watch.file(DATA_DIR / "cpts.parquet")
+    def samples_path(height):
+        """The CPT samples saved with the variograms of a sample height, for 04"""
+        return DATA_DIR / f"simulation_samples_{height * 100:g}cm.parquet"
+
+
     variograms_json = mo.watch.file(VARIOGRAMS_JSON)
-    return VARIOGRAMS_JSON, domains_json, samples_parquet, variograms_json
+    return (
+        VARIOGRAMS_JSON,
+        cpts_parquet,
+        domains_json,
+        samples_path,
+        variograms_json,
+        voxels_parquet,
+    )
 
 
 @app.cell
-def read_inputs(Path, domains_json, json, mo, pl, samples_parquet):
+def read_inputs(
+    Path,
+    cpts_parquet,
+    domains_json,
+    json,
+    mo,
+    pl,
+    voxels_parquet,
+):
     mo.stop(
-        not (Path(domains_json).exists() and Path(samples_parquet).exists()),
+        not all(Path(_f).exists() for _f in (domains_json, voxels_parquet, cpts_parquet)),
         mo.md("Save the simulation domains in `02_simulation_domains.py` first."),
     )
     domain_definition = json.loads(Path(domains_json).read_text(encoding="utf-8"))
-    # The domains from the top down, in the colours 02 gave them
+    # The domains from the top down, in the colors 02 gave them
     DOMAIN_COLORS = domain_definition["colors"]
-    samples = pl.read_parquet(Path(samples_parquet))
-    mo.md(
-        f"**{samples.height} CPT samples** of 0.5 m from {samples['bro_id'].n_unique()} CPTs in "
-        f"**{len(DOMAIN_COLORS)} simulation domains**, saved in `02` on {domain_definition['saved']}."
-    )
-    return DOMAIN_COLORS, domain_definition, samples
+    # The voxels in a simulation domain, and the CPT readings
+    voxels = pl.read_parquet(Path(voxels_parquet)).filter(pl.col("domain").is_not_null())
+    cpts = pl.read_parquet(Path(cpts_parquet))
+    return DOMAIN_COLORS, cpts, domain_definition, voxels
 
 
 @app.cell(hide_code=True)
@@ -97,7 +118,9 @@ def data_intro(mo):
     mo.md(r"""
     ## 1 · The data per domain
 
-    Choose the parameters. With the trend removed, each domain's linear trend with depth comes off before
+    Choose the parameters and the sample height. Below the sample height nothing is measured for the
+    simulation, and a finer height means more samples to condition on in `04`, so a slower simulation. With the
+    trend removed, each domain's linear trend with depth comes off before
     the normal-score transform, so the variograms describe what varies around it; `04` adds the trend back.
     """)
     return
@@ -105,28 +128,90 @@ def data_intro(mo):
 
 @app.cell(hide_code=True)
 def parameter(gs, mo):
-    # The CPT parameters, each with how it is transformed before its normal scores
+    # The CPT parameters, each with how it is transformed before its normal scores. Rf is not simulated, so
+    # it has no variograms: it follows from each realization's qc and fs.
     PARAMETERS = {
         "qc (cone resistance)": "qc",
         "fs (sleeve friction)": "fs",
-        "Rf (friction ratio)": "rf",
     }
     LOG_PARAMETERS = {"qc", "fs"}
-    UNITS = {"qc": "log₁₀ MPa", "fs": "log₁₀ MPa", "rf": "%"}
+    UNITS = {"qc": "log₁₀ MPa", "fs": "log₁₀ MPa"}
     # GSTools' covariance models a domain's variogram can follow; a model's len_scale is what 04 passes on
     MODELS = {
         "Exponential": gs.Exponential,
         "Spherical": gs.Spherical,
         "Gaussian": gs.Gaussian,
     }
+    # The least nugget of a model's fits and sliders. A Gaussian model without a nugget is so smooth that the
+    # simulation's kriging becomes unstable where CPTs close together differ at one depth: its scores then
+    # run far beyond the CPTs' values.
+    MIN_NUGGET = {"Gaussian": 0.05}
     parameters = mo.ui.multiselect(
         PARAMETERS, value=["qc (cone resistance)", "fs (sleeve friction)"], label="Parameters"
     )
     detrend = mo.ui.switch(
         value=True, label="Remove each domain's linear trend with depth"
     )
-    mo.hstack([parameters, detrend], justify="start", gap=2)
-    return LOG_PARAMETERS, MODELS, PARAMETERS, UNITS, detrend, parameters
+    # Heights that divide a voxel
+    _heights = {"10 cm": 0.1, "25 cm": 0.25, "50 cm: the GeoTOP voxels": 0.5}
+    sample_height = mo.ui.dropdown(
+        _heights,
+        value="10 cm",
+        label="Sample height",
+    )
+    mo.hstack([parameters, sample_height, detrend], justify="start", gap=2)
+    return (
+        LOG_PARAMETERS,
+        MIN_NUGGET,
+        MODELS,
+        PARAMETERS,
+        UNITS,
+        detrend,
+        parameters,
+        sample_height,
+    )
+
+
+@app.cell(hide_code=True)
+def samples(
+    DOMAIN_COLORS,
+    cpts,
+    domain_definition,
+    mo,
+    pl,
+    sample_height,
+    voxels,
+):
+    _height = sample_height.value
+    # The CPT readings per sample of this height in the voxels they pass through: their medians, with z the
+    # center of the sample and voxel_z the level of its voxel, whose x and y are its south-west corner. A
+    # voxel's z is its center.
+    samples = (
+        cpts.with_columns(
+            column_x=pl.col("x") // 100 * 100,
+            column_y=pl.col("y") // 100 * 100,
+            voxel_z=(pl.col("z") * 2).round() / 2,
+        )
+        .with_columns(level=((pl.col("z") - pl.col("voxel_z") + 0.25) / _height).floor().clip(0, round(0.5 / _height) - 1))
+        .with_columns(sample_z=(pl.col("voxel_z") - 0.25 + (pl.col("level") + 0.5) * _height).round(3))
+        .group_by("bro_id", "column_x", "column_y", "voxel_z", "sample_z")
+        .agg(pl.first("x", "y"), pl.median("qc", "fs", "rf"), pl.len().alias("readings"))
+        .join(
+            voxels.select(
+                column_x="x", column_y="y", voxel_z="z", stratigraphic_unit="stratigraphic_unit", lithoklasse="lithoklasse", grondsoort="grondsoort", domain="domain"
+            ),
+            on=["column_x", "column_y", "voxel_z"],
+        )
+        .rename({"sample_z": "z"})
+        .with_columns(sample_height=pl.lit(_height))
+        # In one order, so that the trends come out the same each time
+        .sort("bro_id", "z")
+    )
+    mo.md(
+        f"**{samples.height} CPT samples** of {_height * 100:g} cm from {samples['bro_id'].n_unique()} CPTs in "
+        f"**{len(DOMAIN_COLORS)} simulation domains**, saved in `02` on {domain_definition['saved']}."
+    )
+    return (samples,)
 
 
 @app.cell
@@ -176,7 +261,7 @@ def scores(LOG_PARAMETERS, NormalDist, detrend, mo, parameters, pl, samples):
 
 @app.cell(hide_code=True)
 def data_table(DOMAIN_COLORS, UNITS, mo, parameters, pl, trends):
-    # The parameters in the order they were chosen, each with its domains from the top down, in their colours
+    # The parameters in the order they were chosen, each with its domains from the top down, in their colors
     _order = {
         "parameter": {_name: _i for _i, _name in enumerate(parameters.value)},
         "domain": {_domain: _i for _i, _domain in enumerate(DOMAIN_COLORS)},
@@ -185,7 +270,7 @@ def data_table(DOMAIN_COLORS, UNITS, mo, parameters, pl, trends):
         trends.sort(*(pl.col(_column).replace_strict(_rank) for _column, _rank in _order.items())).select(
             "parameter",
             "domain",
-            pl.col("samples").alias("samples (0.5 m)"),
+            "samples",
             pl.col("cpts").alias("CPTs"),
             pl.col("parameter").replace_strict(UNITS).alias("unit"),
             pl.col("mean").round(3),
@@ -201,7 +286,7 @@ def data_table(DOMAIN_COLORS, UNITS, mo, parameters, pl, trends):
 @app.cell
 def lags():
     # The experimental variograms: vertically up to MAX_LAG["vertical"] along each CPT, in steps of the
-    # samples' 0.5 m; horizontally up to MAX_LAG["horizontal"] between CPTs at one level, in bins of
+    # samples' height; horizontally up to MAX_LAG["horizontal"] between CPTs at one level, in bins of
     # HORIZONTAL_BIN. A lag needs MIN_PAIRS pairs of samples to count in the fit.
     MAX_LAG = {"vertical": 10.0, "horizontal": 300.0}
     HORIZONTAL_BIN = 20.0
@@ -220,7 +305,7 @@ def experimental(HORIZONTAL_BIN, MAX_LAG, pl, scores):
     # Vertically: pairs of samples of one CPT, the upper one first
     _vertical = (
         _s.join(_s, on=["parameter", "domain", "bro_id"], suffix="_2")
-        .with_columns(lag=pl.col("z") - pl.col("z_2"))
+        .with_columns(lag=(pl.col("z") - pl.col("z_2")).round(3))
         .filter((pl.col("lag") > 0) & (pl.col("lag") <= MAX_LAG["vertical"]))
         .group_by("parameter", "domain", "lag")
         .agg(gamma=_semivariance, pairs=pl.len())
@@ -245,6 +330,7 @@ def experimental(HORIZONTAL_BIN, MAX_LAG, pl, scores):
 def fit(
     DOMAIN_COLORS,
     LEN_SCALE_BOUNDS,
+    MIN_NUGGET,
     MIN_PAIRS,
     MODELS,
     experimental,
@@ -265,6 +351,9 @@ def fit(
         _model.len_scale_bounds = len_scale_bounds
         try:
             _model.fit_variogram(_lags, _gamma, sill=1.0, nugget=nugget, weights=_pairs, loss="linear")
+            # A fitted nugget below the model's least nugget: fitted again with that nugget
+            if nugget is True and _model.nugget < MIN_NUGGET.get(model_name, 0.0):
+                _model.fit_variogram(_lags, _gamma, sill=1.0, nugget=MIN_NUGGET[model_name], weights=_pairs, loss="linear")
         except (RuntimeError, ValueError):
             return None
         _misfit = float(np.sqrt(np.average((_model.variogram(_lags) - _gamma) ** 2, weights=_pairs)))
@@ -278,7 +367,7 @@ def fit(
         _vertical = _fit(
             model_name, points.filter(pl.col("direction") == "vertical"), nugget=True, len_scale_bounds=LEN_SCALE_BOUNDS["vertical"]
         )
-        _nugget = _vertical[0] if _vertical else 0.0
+        _nugget = _vertical[0] if _vertical else MIN_NUGGET.get(model_name, 0.0)
         _horizontal = _fit(
             model_name, points.filter(pl.col("direction") == "horizontal"), nugget=_nugget, len_scale_bounds=LEN_SCALE_BOUNDS["horizontal"]
         )
@@ -319,10 +408,14 @@ def fit(
 
 
 @app.cell
-def saved_variograms(Path, json, variograms_json):
-    # The variograms saved before, per parameter; empty until they are saved
+def saved_variograms(Path, json, sample_height, variograms_json):
+    # The variograms saved before, per sample height and parameter; empty until they are saved. Each parameter's
+    # carry when they were saved and the date of the simulation domains they were fitted on: SAVE_DATES.
+    SAVE_DATES = ("saved", "simulation_domains_saved")
     saved_variograms = json.loads(Path(variograms_json).read_text(encoding="utf-8")) if Path(variograms_json).exists() else {}
-    return (saved_variograms,)
+    # Those of the chosen sample height
+    saved_at_height = saved_variograms.get(f"{sample_height.value:g}", {})
+    return SAVE_DATES, saved_at_height, saved_variograms
 
 
 @app.cell(hide_code=True)
@@ -359,12 +452,12 @@ def model_choice(
     mo,
     parameters,
     reset_to_fit,
-    saved_variograms,
+    saved_at_height,
 ):
     def _start_model(name, domain):
-        """A domain's model for one parameter: the saved one, when the saved variograms of the parameter have
-        this trend; otherwise the best-fitting one"""
-        _saved = saved_variograms.get(name, {})
+        """A domain's model for one parameter: the saved one at this sample height, when the saved variograms of the
+        parameter have this trend; otherwise the best-fitting one"""
+        _saved = saved_at_height.get(name, {})
         _use_saved = not reset_to_fit.value and _saved.get("detrend") == detrend.value
         _variogram = _saved.get("domains", {}).get(domain) if _use_saved else None
         return _variogram.get("model", _saved.get("model")) if _variogram else best_models[name][domain]
@@ -393,6 +486,7 @@ def moved_sliders(mo):
 def variogram_controls(
     DOMAIN_COLORS,
     LEN_SCALE_BOUNDS,
+    MIN_NUGGET,
     detrend,
     fitted,
     get_moved_sliders,
@@ -400,11 +494,12 @@ def variogram_controls(
     model_choice,
     parameters,
     reset_to_fit,
-    saved_variograms,
+    sample_height,
+    saved_at_height,
     set_moved_sliders,
 ):
     # Where a domain's sliders start for one parameter: where they were last moved with its model; otherwise
-    # its saved variogram, when the saved variograms of the parameter have this trend and it has the same
+    # its saved variogram at this sample height, when the saved variograms of the parameter have this trend and it has the same
     # model; otherwise that model's fit, or DEFAULTS where there is none
     DEFAULTS = {"nugget": 0.0, "vertical": 1.0, "horizontal": 100.0}
     _moved = {} if reset_to_fit.value else get_moved_sliders()
@@ -415,10 +510,10 @@ def variogram_controls(
     def _start(name, domain):
         _model = model_choice.value[name][domain]
         _last = _moved.get(name, {})
-        _last = _last["domains"].get(domain, {}) if _last.get("detrend") == detrend.value else {}
+        _last = _last["domains"].get(domain, {}) if _last.get("detrend") == detrend.value and _last.get("sample_height") == sample_height.value else {}
         if _last.get("model") == _model:
             return _last
-        _saved = saved_variograms.get(name, {})
+        _saved = saved_at_height.get(name, {})
         _use_saved = not reset_to_fit.value and _saved.get("detrend") == detrend.value
         _variogram = _saved.get("domains", {}).get(domain) if _use_saved else None
         if _variogram and _variogram.get("model", _saved.get("model")) == _model:
@@ -432,10 +527,10 @@ def variogram_controls(
         return mo.ui.slider(start=bounds[0], stop=bounds[1], step=step, value=_value, show_value=True, label=label)
 
 
-    def _sliders(start):
+    def _sliders(start, model):
         return mo.ui.dictionary(
             {
-                "nugget": _slider([0.0, 1.0], 0.01, start["nugget"], "Nugget"),
+                "nugget": _slider([MIN_NUGGET.get(model, 0.0), 1.0], 0.01, start["nugget"], "Nugget"),
                 "vertical": _slider(LEN_SCALE_BOUNDS["vertical"], 0.05, start["vertical"], "Vertical length scale (m)"),
                 "horizontal": _slider(LEN_SCALE_BOUNDS["horizontal"], 5.0, start["horizontal"], "Horizontal length scale (m)"),
             }
@@ -447,6 +542,7 @@ def variogram_controls(
             {
                 _name: {
                     "detrend": detrend.value,
+                    "sample_height": sample_height.value,
                     "domains": {
                         _domain: {"model": model_choice.value[_name][_domain], **_values} for _domain, _values in _domains.items()
                     },
@@ -458,7 +554,9 @@ def variogram_controls(
 
     variogram_controls = mo.ui.dictionary(
         {
-            _name: mo.ui.dictionary({_domain: _sliders(_start(_name, _domain)) for _domain in DOMAIN_COLORS})
+            _name: mo.ui.dictionary(
+                {_domain: _sliders(_start(_name, _domain), model_choice.value[_name][_domain]) for _domain in DOMAIN_COLORS}
+            )
             for _name in parameters.value
         },
         on_change=_remember,
@@ -596,10 +694,12 @@ def save_intro(mo):
     mo.md(r"""
     ## 4 · Save the variograms
 
-    Saving pins the variograms of the chosen parameters for `04`. It writes them to
-    `notebooks/variograms.json`, which is committed with the notebooks and keeps the saved variograms of
-    the other parameters. Each parameter has its transform and, per domain, its model, nugget, length
-    scales and trend; the file has the date of the simulation domains they are based on.
+    Saving pins the variograms of the chosen parameters at the chosen sample height for `04`. It writes them to
+    `notebooks/variograms.json`, which is committed with the notebooks, and the CPT samples of that height to
+    `data/simulation_samples_<height>cm.parquet`. It leaves the other heights and the other parameters as they
+    are; saving again at one height replaces that height's variograms of the chosen parameters. Each parameter has
+    its transform, its sample height and, per domain, its model, nugget, length scales and trend, with the date it
+    was saved and the date of the simulation domains it was fitted on.
     """)
     return
 
@@ -610,6 +710,7 @@ def variogram_definition(
     detrend,
     mo,
     model_choice,
+    sample_height,
     trends,
     variogram_controls,
 ):
@@ -619,6 +720,7 @@ def variogram_definition(
         _name: {
             "transform": "log10" if _name in LOG_PARAMETERS else "none",
             "detrend": detrend.value,
+            "sample_height": sample_height.value,
             "domains": {
                 _domain: {
                     "model": model_choice.value[_name][_domain],
@@ -639,28 +741,32 @@ def variogram_definition(
 
 @app.cell(hide_code=True)
 def saved_status(
+    SAVE_DATES,
     domain_definition,
     json,
     mo,
     parameters,
-    saved_variograms,
+    saved_at_height,
     variogram_definitions,
 ):
     def _status(name):
-        """Whether the saved variograms of one parameter are the ones above, and of the saved simulation domains"""
-        _saved = saved_variograms.get(name)
+        """Whether the saved variograms of one parameter are the ones above, and fitted on the saved simulation
+        domains"""
+        _saved = saved_at_height.get(name)
         if _saved is None:
-            return mo.callout(mo.md(f"No variograms of {name} are saved yet."), kind="warn")
-        if _saved != json.loads(json.dumps(variogram_definitions[name])):
+            return mo.callout(mo.md(f"No variograms of {name} are saved at this sample height yet."), kind="warn")
+        _when = _saved.get("saved", "an unknown date")
+        if {_k: _v for _k, _v in _saved.items() if _k not in SAVE_DATES} != json.loads(json.dumps(variogram_definitions[name])):
+            return mo.callout(mo.md(f"The variograms of {name} above differ from the ones saved on {_when}."), kind="warn")
+        if _saved.get("simulation_domains_saved") != domain_definition["saved"]:
             return mo.callout(
-                mo.md(f"The variograms of {name} above differ from the ones saved on {saved_variograms['saved']}."), kind="warn"
-            )
-        if saved_variograms["simulation_domains_saved"] != domain_definition["saved"]:
-            return mo.callout(
-                mo.md(f"The variograms of {name} above are the saved ones, but the simulation domains were saved again since."),
+                mo.md(
+                    f"The variograms of {name} above are the ones saved on {_when}, but those were fitted on other "
+                    "simulation domains. Save them again."
+                ),
                 kind="warn",
             )
-        return mo.callout(mo.md(f"The variograms of {name} above are the ones saved on {saved_variograms['saved']}."), kind="success")
+        return mo.callout(mo.md(f"The variograms of {name} above are the ones saved on {_when}."), kind="success")
 
 
     mo.vstack([_status(_name) for _name in parameters.value])
@@ -669,30 +775,68 @@ def saved_status(
 
 @app.cell(hide_code=True)
 def save(
-    PARAMETERS,
     VARIOGRAMS_JSON,
     datetime,
     domain_definition,
     json,
     mo,
+    sample_height,
+    samples,
+    samples_path,
     save_variograms,
+    saved_at_height,
     saved_variograms,
     variogram_definitions,
 ):
     mo.stop(not save_variograms.value)
+    samples.write_parquet(samples_path(sample_height.value))
+    # The chosen parameters' variograms at this sample height, each with this save's date and the simulation
+    # domains' date; the other parameters and heights as they were saved before, from the finest height up
+    _dates = {"saved": datetime.now().isoformat(timespec="seconds"), "simulation_domains_saved": domain_definition["saved"]}
+    _saved = {
+        **saved_variograms,
+        f"{sample_height.value:g}": {
+            **saved_at_height,
+            **{_name: {**_definition, **_dates} for _name, _definition in variogram_definitions.items()},
+        },
+    }
     VARIOGRAMS_JSON.write_text(
-        json.dumps(
-            {
-                **{_key: _value for _key, _value in saved_variograms.items() if _key in PARAMETERS.values()},
-                "saved": datetime.now().isoformat(timespec="seconds"),
-                "simulation_domains_saved": domain_definition["saved"],
-                **variogram_definitions,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-        + "\n",
+        json.dumps(dict(sorted(_saved.items(), key=lambda _item: float(_item[0]))), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
+    )
+    return
+
+
+@app.cell(hide_code=True, expand_output=True)
+def saved_table(DOMAIN_COLORS, mo, pl, saved_variograms):
+    # The variograms in variograms.json, per sample height, parameter and domain
+    _saved = pl.DataFrame(
+        [
+            {
+                "sample height (cm)": round(float(_height) * 100, 1),
+                "parameter": _name,
+                "domain": _domain,
+                "model": _variogram["model"],
+                "nugget": _variogram["nugget"],
+                "len_scale vertical (m)": _variogram["len_scale"]["vertical"],
+                "len_scale horizontal (m)": _variogram["len_scale"]["horizontal"],
+                "saved": _definition["saved"],
+            }
+            for _height, _parameters in saved_variograms.items()
+            for _name, _definition in _parameters.items()
+            for _domain, _variogram in _definition["domains"].items()
+        ]
+    )
+    mo.vstack(
+        [
+            mo.md("## 5 · The saved variograms"),
+            mo.ui.table(
+                _saved,
+                selection=None,
+                page_size=36,
+                style_cell=lambda _row, column, value: {"backgroundColor": DOMAIN_COLORS.get(value, "#ffffff")} if column == "domain" else {},
+            ),
+        ]
     )
     return
 

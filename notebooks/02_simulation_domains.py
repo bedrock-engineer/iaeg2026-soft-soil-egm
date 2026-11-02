@@ -33,7 +33,7 @@ def _(mo):
 
     A **simulation domain** is a group of GeoTOP voxels that share one variogram and one set of
     conditioning CPT data. Choose how to group the voxels and see, for each domain, how much of the
-    model it fills, how many CPTs condition it and whether its CPT data differ from its neighbours'.
+    model it fills, how many CPTs condition it and whether its CPT data differ from its neighbors'.
 
     Reads the BimDataFrame of GeoTOP voxels and the CPT table that `01_get_data.py` writes into
     `data/`.
@@ -126,7 +126,7 @@ def read_inputs(Path, bpl, cpts_parquet, geotop_parquet, mo, pl):
     geotop_bimdf = bpl.read_parquet(Path(geotop_parquet))
     cpts = pl.read_parquet(Path(cpts_parquet))
     # The voxels' GeoTOP values as columns: x and y are the south-west corner of the 100 m column, z the
-    # centre of the 0.5 m voxel, in RD New + NAP
+    # center of the 0.5 m voxel, in RD New + NAP
     voxels = geotop_bimdf.select("id", pl.col("properties").struct.field("GeoTOP").struct.unnest())
     mo.md(f"**{voxels.height} GeoTOP voxels** in {voxels.select('x', 'y').n_unique()} columns, **{cpts['bro_id'].n_unique()} CPTs**.")
     return cpts, geotop_bimdf, voxels
@@ -139,7 +139,7 @@ def choose_intro(mo):
 
     Start from a preset, then change which domain each stratigraphic unit belongs to, whether the domains
     split by lithology group, and how deep the model is simulated. Each stratigraphic unit is shown in its
-    GeoTOP colour, with the share of its voxels in each GeoTOP lithology class; hover over the bar for
+    GeoTOP color, with the share of its voxels in each GeoTOP lithology class; hover over the bar for
     the numbers.
     """)
     return
@@ -147,7 +147,7 @@ def choose_intro(mo):
 
 @app.cell(hide_code=True)
 def legends(bromodels, pl):
-    # GeoTOP's colours per stratigraphic unit and lithology class
+    # GeoTOP's colors per stratigraphic unit and lithology class
     def _colors(legend, code):
         return {
             _row[code]: f"#{int(_row['RED_DEC']):02x}{int(_row['GREEN_DEC']):02x}{int(_row['BLUE_DEC']):02x}"
@@ -157,7 +157,7 @@ def legends(bromodels, pl):
 
     STRAT_COLORS = _colors(pl.from_pandas(bromodels.GeoTop.geotop_stratigraphic_unit()), "STR_UNIT_CD")
     LITH_COLORS = _colors(pl.from_pandas(bromodels.GeoTop.geotop_lithology_class()), "LITHO_CLASS_CD")
-    # GeoTOP's lithology classes grouped the way CPTs tell them apart, each group in a typical class's colour
+    # GeoTOP's lithology classes grouped the way CPTs tell them apart, each group in a typical class's color
     LITH_GROUPS = {"v": "peat", "k": "clay", "kz": "clayey sand", "zf": "sand", "zm": "sand", "zg": "sand", "g": "sand", "a": "fill"}
     LITH_GROUP_COLORS = {_group: LITH_COLORS[_code] for _code, _group in [("v", "peat"), ("k", "clay"), ("kz", "clayey sand"), ("zm", "sand"), ("a", "fill")]}
     return LITH_COLORS, LITH_GROUPS, LITH_GROUP_COLORS, STRAT_COLORS
@@ -189,7 +189,7 @@ def presets(DOMAINS_JSON, json, mo):
                     "units": _saved["units"],
                     "split": _saved["split_by_lithology"],
                     "base": _saved["simulate_down_to"],
-                    "min_metres": _saved["min_cpt_metres"],
+                    "min_meters": _saved["min_cpt_meters"],
                 }
             }
             if _saved
@@ -261,17 +261,17 @@ def controls(
         include_input=True,
         label="Simulate down to (m NAP)",
     )
-    min_metres = mo.ui.slider(
+    min_meters = mo.ui.slider(
         start=0.5,
         stop=5,
         step=0.5,
-        value=_preset.get("min_metres", 1),
+        value=_preset.get("min_meters", 1),
         show_value=True,
         label="A CPT conditions a domain with at least (m)",
     )
 
     def _text_color(hex_color):
-        # Dark text on light colours, white on dark ones
+        # Dark text on light colors, white on dark ones
         _r, _g, _b = (int(hex_color[_i : _i + 2], 16) for _i in (1, 3, 5))
         return (
             "black" if 0.299 * _r + 0.587 * _g + 0.114 * _b > 140 else "white"
@@ -280,7 +280,7 @@ def controls(
     def _colored(text, color):
         return f'<td style="background:{color};color:{_text_color(color)};padding:2px 6px">{text}</td>'
 
-    # Each stratigraphic unit's voxels per GeoTOP lithology class, as a bar of the classes' colours
+    # Each stratigraphic unit's voxels per GeoTOP lithology class, as a bar of the classes' colors
     _lithology = (
         voxels.group_by("stratigraphic_unit", "lithoklasse", "grondsoort")
         .len()
@@ -340,7 +340,7 @@ def controls(
     mo.vstack(
         [
             mo.hstack(
-                [split_by_lithology, base_cut, min_metres],
+                [split_by_lithology, base_cut, min_meters],
                 justify="start",
                 gap=2,
             ),
@@ -353,13 +353,13 @@ def controls(
             ),
         ]
     )
-    return base_cut, min_metres, split_by_lithology, unit_domains
+    return base_cut, min_meters, split_by_lithology, unit_domains
 
 
 @app.cell
 def samples(cpts, pl, voxels):
     # CPT readings averaged per voxel they pass through: the column from x and y (its south-west corner),
-    # the 0.5 m level from the nearest voxel centre
+    # the 0.5 m level from the nearest voxel center
     samples = (
         cpts.with_columns(
             column_x=pl.col("x") // 100 * 100,
@@ -409,7 +409,7 @@ def domains(
     voxel_domains = voxels.with_columns(DOMAIN)
     sample_domains = samples.with_columns(DOMAIN).drop_nulls("domain")
 
-    # The domains from the top down, in GeoTOP's colour where a domain is one stratigraphic unit or one lithology group
+    # The domains from the top down, in GeoTOP's color where a domain is one stratigraphic unit or one lithology group
     _TABLEAU20 = [
         "#4e79a7", "#a0cbe8", "#f28e2b", "#ffbe7d", "#59a14f", "#8cd17d", "#b6992d", "#f1ce63", "#499894", "#86bcb6",
         "#e15759", "#ff9d9a", "#79706e", "#bab0ac", "#d37295", "#fabfd2", "#b07aa1", "#d4a6c8", "#9d7660", "#d7b5a6",
@@ -426,12 +426,12 @@ def domains(
 @app.cell
 def domain_summary(
     DOMAIN_COLORS,
-    min_metres,
+    min_meters,
     pl,
     sample_domains,
     voxel_domains,
 ):
-    _per_cpt = sample_domains.group_by("domain", "bro_id").agg((pl.len() * 0.5).alias("metres"))
+    _per_cpt = sample_domains.group_by("domain", "bro_id").agg((pl.len() * 0.5).alias("meters"))
     domain_summary = (
         voxel_domains.drop_nulls("domain")
         .group_by("domain")
@@ -443,8 +443,8 @@ def domain_summary(
         )
         .join(
             _per_cpt.group_by("domain").agg(
-                (pl.col("metres") >= min_metres.value).sum().alias("CPTs"),
-                pl.sum("metres").alias("CPT metres"),
+                (pl.col("meters") >= min_meters.value).sum().alias("CPTs"),
+                pl.sum("meters").alias("CPT meters"),
             ),
             on="domain",
             how="left",
@@ -458,7 +458,7 @@ def domain_summary(
             on="domain",
             how="left",
         )
-        .with_columns(pl.col("CPTs", "CPT metres").fill_null(0))
+        .with_columns(pl.col("CPTs", "CPT meters").fill_null(0))
         .with_columns(
             variogram=pl.when(pl.col("CPTs") >= 20)
             .then(pl.lit("horizontal and vertical"))
@@ -474,7 +474,7 @@ def domain_summary(
 
 
 @app.cell(hide_code=True)
-def domain_table(domain_summary, min_metres, mo, voxel_domains):
+def domain_table(domain_summary, min_meters, mo, voxel_domains):
     _not_simulated = voxel_domains["domain"].null_count()
     mo.vstack(
         [
@@ -482,7 +482,7 @@ def domain_table(domain_summary, min_metres, mo, voxel_domains):
                 f"## 1 · {domain_summary.height} domains\n\n"
                 f"{100 * _not_simulated / voxel_domains.height:.1f} % of the voxels are not simulated. "
                 f"A domain needs about 20 CPTs for a horizontal and a vertical variogram, and 5 for a vertical one; "
-                f"a CPT counts for a domain with at least {min_metres.value} m in it."
+                f"a CPT counts for a domain with at least {min_meters.value} m in it."
             ),
             mo.ui.table(
                 domain_summary,
@@ -495,16 +495,16 @@ def domain_table(domain_summary, min_metres, mo, voxel_domains):
 
 
 @app.cell(hide_code=True)
-def coverage(alt, domain_scale, domain_summary, min_metres, pl):
+def coverage(alt, domain_scale, domain_summary, min_meters, pl):
     # How much of the model each domain fills, and how many CPTs condition it
     _order = domain_summary["domain"].to_list()
     _base = alt.Chart(domain_summary).encode(
         y=alt.Y("domain:N", sort=_order, title=None),
         color=alt.Color("domain:N", scale=domain_scale, legend=None),
-        tooltip=["domain", "voxels", "% of model", "CPTs", "CPT metres", "variogram"],
+        tooltip=["domain", "voxels", "% of model", "CPTs", "CPT meters", "variogram"],
     )
     _share = _base.mark_bar().encode(x=alt.X("% of model:Q", title="Share of the model (%)")).properties(width=260)
-    # The CPTs a domain needs for a vertical variogram (5) and for a horizontal one too (20), labelled
+    # The CPTs a domain needs for a vertical variogram (5) and for a horizontal one too (20), labeled
     # one above the other
     _thresholds = pl.DataFrame({"CPTs": [5, 20], "label": ["5: vertical variogram", "20: horizontal and vertical"]})
     _rules = alt.Chart(_thresholds).mark_rule(strokeDash=[4, 3], color="#555").encode(x="CPTs:Q")
@@ -515,7 +515,7 @@ def coverage(alt, domain_scale, domain_summary, min_metres, pl):
         for _i, _dy in [(0, -18), (1, -6)]
     ]
     _cpts = alt.layer(
-        _base.mark_bar().encode(x=alt.X("CPTs:Q", title=f"CPTs with at least {min_metres.value} m in the domain")),
+        _base.mark_bar().encode(x=alt.X("CPTs:Q", title=f"CPTs with at least {min_meters.value} m in the domain")),
         _rules,
         *_labels,
     ).properties(width=320)
@@ -546,17 +546,19 @@ def cross_sections_widget(Path, anywidget, mo, traitlets):
 
         _esm = Path(mo.notebook_dir()) / "cross_sections.js"
         # Per voxel: x, y, z and its indices in units and lithologies, which hold each stratigraphic
-        # unit's code, name and colour and each lithology class's name and colour
+        # unit's code, name and color and each lithology class's name and color
         voxels = traitlets.List().tag(sync=True)
         units = traitlets.List().tag(sync=True)
         lithologies = traitlets.List().tag(sync=True)
         # Per CPT: its x and y, and its qc (MPa) per voxel level z
         cpts = traitlets.List().tag(sync=True)
-        # The domains' names and colours, and each voxel's index in them (-1 where it is not simulated)
+        # The domains' names and colors, and each voxel's index in them (-1 where it is not simulated)
         domains = traitlets.List().tag(sync=True)
         domain_of = traitlets.List().tag(sync=True)
-        # What the voxels are coloured by: "domain", "unit" or "lithology"
+        # What the voxels are colored by: "domain", "unit" or "lithology"
         color_by = traitlets.Unicode("domain").tag(sync=True)
+        # The CPT clicked in the plan, by its BRO ID
+        selected_cpt = traitlets.Unicode("").tag(sync=True)
         x = traitlets.Float().tag(sync=True)
         y = traitlets.Float().tag(sync=True)
         z = traitlets.Float().tag(sync=True)
@@ -576,7 +578,7 @@ def cross_sections(
 ):
     # Made once for the voxels, so the sections stay where they were dragged when the domains change
     # The stratigraphic units from the top down and the lithology classes from the most voxels to the
-    # fewest, in GeoTOP's colours
+    # fewest, in GeoTOP's colors
     _units = (
         voxels.group_by("stratigraphic_unit")
         .agg(pl.max("z"), pl.first("geologische_eenheid"))
@@ -641,7 +643,7 @@ def domain_viewer_objects(
     styled_bimdf,
     voxel_bimdf,
 ):
-    # The voxels into the 3D viewer, coloured like the cross-sections: by simulation domain (the simulated
+    # The voxels into the 3D viewer, colored like the cross-sections: by simulation domain (the simulated
     # voxels only), stratigraphic unit or lithology class. With cut_sections on, without the voxels in
     # the cross-sections' row and column of columns.
     _color_by = cross_sections.value["color_by"]
@@ -685,7 +687,7 @@ def cross_sections_domains(DOMAIN_COLORS, section_view, voxel_domains):
 @app.cell
 def voxel_bimdf(bpl, cpts, geotop_bimdf, pl, voxel_domains):
     def styled_bimdf(bimdf, name, color):
-        """The elements with the column name as their class, each mesh in one colour: color, an
+        """The elements with the column name as their class, each mesh in one color: color, an
         expression of "#rrggbb" strings"""
         _rgba = pl.concat_list(
             [color.str.slice(_i, 2).str.to_integer(base=16) / 255 for _i in (1, 3, 5)] + [pl.lit(1.0)]
@@ -745,7 +747,7 @@ def separation_intro(mo):
     ## 4 · Do the domains separate the CPT data?
 
     The 0.5 m CPT samples per domain, from the softest to the stiffest. Domains are useful when their
-    boxes differ from their neighbours' and are narrow inside. Click a domain in the legend of the qc–Rf
+    boxes differ from their neighbors' and are narrow inside. Click a domain in the legend of the qc–Rf
     plot to pick it out.
     """)
     return
@@ -805,7 +807,7 @@ def domain_definition(
     DOMAIN_COLORS,
     LITH_GROUPS,
     base_cut,
-    min_metres,
+    min_meters,
     mo,
     split_by_lithology,
     unit_domains,
@@ -816,7 +818,7 @@ def domain_definition(
         "split_by_lithology": split_by_lithology.value,
         "lithology_groups": LITH_GROUPS,
         "simulate_down_to": base_cut.value,
-        "min_cpt_metres": min_metres.value,
+        "min_cpt_meters": min_meters.value,
         "colors": DOMAIN_COLORS,
     }
     save_domains = mo.ui.run_button(label="Save these simulation domains")

@@ -7,15 +7,15 @@ Date: 2026-10-22. Scope: a one-week build for the XV IAEG 2026 demo.
 
 | Target | Recommendation | Size measured at 10×10×0.5 m (220,000 voxels) |
 |---|---|---|
-| **VTK** | `pyvista.ImageData` (uniform grid) with values in `cell_data`, saved as XML `.vti` (zlib, the PyVista default). Don't use UnstructuredGrid. | 2.1 MB for 1 realisation, 21 MB for 10 |
-| **netCDF / zarr** | One `xarray.Dataset` with dims `(realization, z, y, x)`, cell-centre coordinates, CF-1.11 attributes and a `crs` grid-mapping variable that holds `crs_wkt` for **EPSG:7415** (RD New + NAP height). Write netCDF4 with zlib as the main file; zarr v3 is the same dataset with one extra call. Follow GeoTOP's naming (`x`, `y`, `z`, integer unit codes plus a lookup table), but don't copy its corner-based x/y. | netCDF 1.4 MB (1 real.) / 13.9 MB (10 real.); zarr 1.6 / 15.6 MB |
-| **Speckle** | **Don't send one object per voxel at 10 m.** Send two collections: (a) **column runs**, one box `DataObject` for each run of same-unit voxels in an x-y column, with scalar `properties` (unit, top, bottom, thickness, mean qc, mean fs); (b) **one merged boundary mesh per unit** for a fast overview. Colour both with the existing `colorProxies`. Send only a summary realisation. Keep the proven `operations.send` path; trying `send3` (the parquet bundle) is a stretch goal. | runs: 13,445 objects (40k JSON objects, 26 MB); unit meshes: 7 objects, 155k triangles. Per-voxel for comparison: 660k JSON objects, 411 MB |
+| **VTK** | `pyvista.ImageData` (uniform grid) with values in `cell_data`, saved as XML `.vti` (zlib, the PyVista default). Don't use UnstructuredGrid. | 2.1 MB for 1 realization, 21 MB for 10 |
+| **netCDF / zarr** | One `xarray.Dataset` with dims `(realization, z, y, x)`, cell-center coordinates, CF-1.11 attributes and a `crs` grid-mapping variable that holds `crs_wkt` for **EPSG:7415** (RD New + NAP height). Write netCDF4 with zlib as the main file; zarr v3 is the same dataset with one extra call. Follow GeoTOP's naming (`x`, `y`, `z`, integer unit codes plus a lookup table), but don't copy its corner-based x/y. | netCDF 1.4 MB (1 real.) / 13.9 MB (10 real.); zarr 1.6 / 15.6 MB |
+| **Speckle** | **Don't send one object per voxel at 10 m.** Send two collections: (a) **column runs**, one box `DataObject` for each run of same-unit voxels in an x-y column, with scalar `properties` (unit, top, bottom, thickness, mean qc, mean fs); (b) **one merged boundary mesh per unit** for a fast overview. Color both with the existing `colorProxies`. Send only a summary realization. Keep the proven `operations.send` path; trying `send3` (the parquet bundle) is a stretch goal. | runs: 13,445 objects (40k JSON objects, 26 MB); unit meshes: 7 objects, 155k triangles. Per-voxel for comparison: 660k JSON objects, 411 MB |
 
 ## Model dimensions
 
 Box: 400 × 500 × 55 m, with z running from +5 to −50 m NAP.
 
-| Grid | nx × ny × nz | Voxels | × 10 realisations |
+| Grid | nx × ny × nz | Voxels | × 10 realizations |
 |---|---|---|---|
 | 25 × 25 × 0.5 m | 16 × 20 × 110 | 35,200 | 352,000 |
 | 10 × 10 × 0.5 m | 40 × 50 × 110 | 220,000 | 2,200,000 |
@@ -26,7 +26,7 @@ A scratch uv venv held pyvista 0.49.1, xarray 2026.9.0, zarr 3.4.1, netCDF4 1.7.
 
 Caveats:
 - The synthetic qc/fs fields carry lognormal voxel-scale noise, so they compress worse than a smooth kriged field. Treat the compressed sizes as **upper bounds**.
-- Nothing was sent to a Speckle server. Speckle numbers come from serialising locally:
+- Nothing was sent to a Speckle server. Speckle numbers come from serializing locally:
   - for the JSON path, through `operations.send` into a `MemoryTransport`;
   - for the parquet path, through `BundleBuilder.build()`.
 
@@ -41,7 +41,7 @@ Caveats:
   - `ImageData` has supported a `direction_matrix` since VTK 9.2 (see the `pyvista/core/grid.py` docstring), but we don't need rotation.
 - Voxel values belong in **`cell_data`**, with `dimensions = (nx+1, ny+1, nz+1)` points. Putting them in `point_data` would turn every voxel into a point and make ParaView interpolate between them.
 - `RectilinearGrid` gives identical size here (2.07 MB). It only adds value if dz varies with depth.
-- `UnstructuredGrid` is 2.9× larger at 1 realisation (5.9 MB) and gives no benefit. Use it only for a clipped, non-box domain, and even then thresholding an `ImageData` in ParaView is easier.
+- `UnstructuredGrid` is 2.9× larger at 1 realization (5.9 MB) and gives no benefit. Use it only for a clipped, non-box domain, and even then thresholding an `ImageData` in ParaView is easier.
 - `PyVista DataObject.save(..., compression='zlib')` is the default (`pyvista/core/dataobject.py`). The extension picks the writer: `.vti`, `.vtr`, `.vtu`, `.vtk`, `.vtkhdf`.
 
 Measured sizes:
@@ -56,20 +56,20 @@ Measured sizes:
 
 Every write took under 1.2 s.
 
-### Realisations in VTK
+### Realizations in VTK
 
-VTK has no "realisation" dimension. Two options:
-- Store per-realisation arrays (`unit_r00`, `qc_r00`, …) next to summary arrays: most-probable unit, unit probability, qc P10/P50/P90.
-- Write one `.vti` per realisation.
+VTK has no "realization" dimension. Two options:
+- Store per-realization arrays (`unit_r00`, `qc_r00`, …) next to summary arrays: most-probable unit, unit probability, qc P10/P50/P90.
+- Write one `.vti` per realization.
 
-At 10 m, ten realisations come to only about 21 MB, so a single file with suffixed arrays is fine. ParaView users colour by the summary arrays first.
+At 10 m, ten realizations come to only about 21 MB, so a single file with suffixed arrays is fine. ParaView users color by the summary arrays first.
 
 VTK has no CRS slot. Put the CRS and unit lookup in `field_data`, as in the sketch below. RD coordinates (~1.2e5 m) work fine at float64 in ParaView.
 
 ```python
 import numpy as np, pyvista as pv
 grid = pv.ImageData(dimensions=(nx+1, ny+1, nz+1), spacing=(dx, dy, 0.5),
-                    origin=(x_min, y_min, z_min_nap))          # corners, not centres
+                    origin=(x_min, y_min, z_min_nap))          # corners, not centers
 # arrays are (nx, ny, nz) -> VTK wants x fastest: ravel(order="F")
 grid.cell_data["unit"]   = unit.ravel(order="F").astype(np.uint8)
 grid.cell_data["qc_MPa"] = qc.ravel(order="F").astype(np.float32)
@@ -93,8 +93,8 @@ Going the other way, from the xarray Dataset in section 2, is a few lines: `ds[v
 - **Projected coordinates** use `standard_name = projection_x_coordinate` / `projection_y_coordinate` (CF §5.6 / App. F).
 - **Vertical coordinate.** It needs a `positive` attribute, `up` or `down` (CF §4.3). Use `z` with `units="m"` and `positive="up"`, and say "height above NAP" in `long_name`. The datum itself is carried by the compound WKT.
 - **Cell extents.** Without `bounds`, "an application can make no assumption about the location or extent of the cells" (CF §7.1). Add `x_bnds`, `y_bnds` and `z_bnds`.
-- **Categorical unit.** Use `flag_values` + `flag_meanings` (CF §3.5) for the integer unit code, and keep a separate lookup table (code, name, colour) as an attribute or a small side variable.
-- **Realisations.** The CF standard-name table has `realization`: "used to label a dimension that can be thought of as a statistical sample, e.g., labelling members of a model ensemble". Make it the leading dimension.
+- **Categorical unit.** Use `flag_values` + `flag_meanings` (CF §3.5) for the integer unit code, and keep a separate lookup table (code, name, color) as an attribute or a small side variable.
+- **Realizations.** The CF standard-name table has `realization`: "used to label a dimension that can be thought of as a statistical sample, e.g., labeling members of a model ensemble". Make it the leading dimension.
 
 ### GeoTOP's own layout
 
@@ -107,18 +107,18 @@ DINOloket serves GeoTOP as one netCDF over OPeNDAP at `https://www.dinodata.nl/o
   - `kans_1` … `kans_9`: the probability of each lithoclass.
   - `onz_lk` and `onz_ls`: uncertainty in lithoclass and in strat.
 - Voxels are 100 × 100 × 0.5 m.
-- `z` is the voxel **centre**. nlmod builds top and bottom as `z ± 0.25`.
+- `z` is the voxel **center**. nlmod builds top and bottom as `z ± 0.25`.
 - **x and y are cell corners.** nlmod's comment says "set x and y dimensions to cell center", and it shifts the stored values by `dx/2`.
 
-So our file can mirror GeoTOP's vocabulary. Use the dimension names `x`/`y`/`z`, z as the centre in m NAP, and integer codes with a lookup table. Where it fits, borrow GeoTOP's realisation-summary idea: a most-probable unit plus a probability per class, like `kans_*`, and an uncertainty measure, like `onz_*`.
+So our file can mirror GeoTOP's vocabulary. Use the dimension names `x`/`y`/`z`, z as the center in m NAP, and integer codes with a lookup table. Where it fits, borrow GeoTOP's realization-summary idea: a most-probable unit plus a probability per class, like `kans_*`, and an uncertainty measure, like `onz_*`.
 
-Don't copy the corner-referenced x/y. Use cell centres plus `*_bnds`, which is what CF expects. Order the dimensions `(realization, z, y, x)`, the usual CF/COARDS order and nlmod's working order.
+Don't copy the corner-referenced x/y. Use cell centers plus `*_bnds`, which is what CF expects. Order the dimensions `(realization, z, y, x)`, the usual CF/COARDS order and nlmod's working order.
 
 > **Side finding (existing notebook).** `amsterdam_noord_geotop_to_speckle.py` builds each GeoTOP box as `x ± 50, y ± 50` around the coordinates that bromodels returns. bromodels does *not* apply nlmod's half-cell shift. If nlmod is right that the stored x/y are corners, the Speckle voxels sit 50 m south-west of their true position. This needs a quick check against a known GeoTOP column.
 
 ### Measured sizes
 
-netCDF4 used zlib level 4 with shuffle. netCDF4-python picked chunks of `[1, 110, 50, 40]`, one chunk per realisation. zarr v3 used xarray/zarr defaults.
+netCDF4 used zlib level 4 with shuffle. netCDF4-python picked chunks of `[1, 110, 50, 40]`, one chunk per realization. zarr v3 used xarray/zarr defaults.
 
 | | 25 m, 1 real. | 10 m, 1 real. | 10 m, 10 real. |
 |---|---|---|---|
@@ -153,7 +153,7 @@ ds = xr.Dataset(
         "realization": ("realization", np.arange(n_real), {"standard_name": "realization"}),
         "x": ("x", xc, {"standard_name": "projection_x_coordinate", "units": "m", "axis": "X", "bounds": "x_bnds"}),
         "y": ("y", yc, {"standard_name": "projection_y_coordinate", "units": "m", "axis": "Y", "bounds": "y_bnds"}),
-        "z": ("z", zc, {"standard_name": "height", "long_name": "height of voxel centre above NAP",
+        "z": ("z", zc, {"standard_name": "height", "long_name": "height of voxel center above NAP",
                         "units": "m", "positive": "up", "axis": "Z", "bounds": "z_bnds"}),
         "x_bnds": (("x", "nv"), np.c_[xc - dx/2, xc + dx/2]),
         "y_bnds": (("y", "nv"), np.c_[yc - dy/2, yc + dy/2]),
@@ -216,7 +216,7 @@ Primary source: `packages/viewer/src/modules/batching/Batcher.ts` in speckle-ser
 - Every object is also a node in the viewer's world tree and in the filter index. Interactive filtering slows in step with the object count.
 - Hardware instancing only kicks in for instance geometry of at least `minInstancedBatchVertices = 10000` vertices. An 8-vertex voxel box is never GPU-instanced, so it is baked per object.
 
-### Measured Speckle payloads (local serialisation, realisation 0)
+### Measured Speckle payloads (local serialization, realization 0)
 
 | Representation | Objects (input) | JSON path: `operations.send` → Speckle objects / bytes | Parquet bundle path: `BundleBuilder.build()` |
 |---|---|---|---|
@@ -242,12 +242,12 @@ How to read the table:
 2. **One boundary mesh per unit (recommended overview layer).** Extract each unit's cells, keep the exterior surface, then triangulate.
    - 7 objects, 155k triangles at 10 m. Fast to load, and every unit is one object for "isolate unit".
    - Properties are unit-level (volume, median qc).
-   - Optionally use vertex `colors` on the mesh to show qc. That gives a colour map, not a filter.
+   - Optionally use vertex `colors` on the mesh to show qc. That gives a color map, not a filter.
 3. **Isosurfaces** of qc, for example `grid.cell_data_to_point_data().contour([0.5, 2.0])`, can be added as separate meshes for presentation slides. They aren't needed for filtering.
-4. **Point cloud: no.** specklepy's `PointCloud` holds `points: List[Point]` and has no per-point colour or properties (the source comment says "sizes and colors could be added in the future"). It can't carry voxel attributes into filters.
+4. **Point cloud: no.** specklepy's `PointCloud` holds `points: List[Point]` and has no per-point color or properties (the source comment says "sizes and colors could be added in the future"). It can't carry voxel attributes into filters.
 5. **Per-voxel at 25 m** stays an option if the demo specifically needs "click any voxel". It costs 66 MB JSON or 4.4 MB as a bundle. Send it as its own model so the main model stays light.
 
-Realisations: send **one** summary realisation to Speckle: the most-probable unit and qc P50, with an uncertainty property per run such as `unit_probability` or `qc_p90_minus_p10`. The full ensemble lives in netCDF.
+Realizations: send **one** summary realization to Speckle: the most-probable unit and qc P50, with an uncertainty property per run such as `unit_probability` or `qc_p90_minus_p10`. The full ensemble lives in netCDF.
 
 ### JSON send vs parquet bundle (send3)
 
@@ -312,16 +312,16 @@ mesh = sg.Mesh(vertices=surf.points.ravel().tolist(),
 > **Side finding (existing notebook).** The face list in `amsterdam_noord_geotop_to_speckle.py` is
 > `[4,0,1,2,3, 4,4,5,6,7, 4,0,1,5,4, 4,2,3,7,6, 4,0,4,5,1, 4,2,6,5,1]`. Face 5 (`0,4,5,1`) is the y-min face again, reversed, and the x-min face (`0,3,7,4`) is missing. So every voxel has one open side and one double face. `BOX_FACES` above is a corrected, consistently outward-wound list.
 
-Geo-referencing in Speckle: send real RD coordinates in metres, as the notebook does. Speckle's viewer handles large coordinates with relative-to-eye rendering (the "RTE" in `Batcher.ts`). Record `EPSG:7415` in a root-level property so that downstream tools know the CRS.
+Geo-referencing in Speckle: send real RD coordinates in meters, as the notebook does. Speckle's viewer handles large coordinates with relative-to-eye rendering (the "RTE" in `Batcher.ts`). Record `EPSG:7415` in a root-level property so that downstream tools know the CRS.
 
 ---
 
 ## Recommendation for the 1-week build
 
 1. **One canonical in-memory model**: an xarray `Dataset` as in section 2. Every export derives from it.
-2. **netCDF4** (zlib 4, CF-1.11, `crs_wkt` for EPSG:7415, centres plus bounds, a `realization` dim): main archival and exchange file, ~14 MB for 10 realisations at 10 m. **zarr** is optional, one line, only if the web viewer needs it.
-3. **VTK `.vti`** from `pyvista.ImageData`, values in cell data, summary arrays plus per-realisation arrays: ~2 MB per realisation at 10 m. This is for ParaView figures.
-4. **Speckle**: one summary realisation as column-run DataObjects (~13k objects at 10 m) plus 7 unit envelope meshes, with scalar `{name, value, units}` properties and colour/material proxies. Fix the notebook's face list and check the GeoTOP half-cell offset. Stay on JSON `operations.send`; treat `send3` bundles as a stretch goal.
+2. **netCDF4** (zlib 4, CF-1.11, `crs_wkt` for EPSG:7415, centers plus bounds, a `realization` dim): main archival and exchange file, ~14 MB for 10 realizations at 10 m. **zarr** is optional, one line, only if the web viewer needs it.
+3. **VTK `.vti`** from `pyvista.ImageData`, values in cell data, summary arrays plus per-realization arrays: ~2 MB per realization at 10 m. This is for ParaView figures.
+4. **Speckle**: one summary realization as column-run DataObjects (~13k objects at 10 m) plus 7 unit envelope meshes, with scalar `{name, value, units}` properties and color/material proxies. Fix the notebook's face list and check the GeoTOP half-cell offset. Stay on JSON `operations.send`; treat `send3` bundles as a stretch goal.
 5. **Don't build**: an UnstructuredGrid export, per-voxel Speckle at 10 m, or Speckle point clouds.
 
 ## Sources

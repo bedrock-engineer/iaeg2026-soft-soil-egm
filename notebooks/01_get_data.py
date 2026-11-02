@@ -114,7 +114,7 @@ def settings(Path, mo):
 @app.cell(hide_code=True)
 def building_footprint(BIM_URL, gpd, pl, shapely):
     _floors = pl.scan_parquet(BIM_URL).filter(pl.col("class").cast(pl.String) == "Floors").select("geog").collect()
-    # The building's footprint: the largest polygon of the union of its Floors, in RD New metres
+    # The building's footprint: the largest polygon of the union of its Floors, in RD New meters
     _union = gpd.GeoSeries.from_wkb(_floors["geog"].to_numpy(), crs="OGC:CRS84").force_2d().make_valid().to_crs(28992).union_all()
     footprint_rd = max(
         (_part for _part in shapely.get_parts(_union) if _part.geom_type == "Polygon"),
@@ -402,7 +402,7 @@ def _(mo):
     ## GeoTOP as a BimDataFrame
 
     The downloaded voxels in a bimpolars BimDataFrame, one row per voxel: a box mesh in GeoTOP's
-    lithology colour, the stratigraphic unit as `class`, and the voxel's GeoTOP values in the property
+    lithology color, the stratigraphic unit as `class`, and the voxel's GeoTOP values in the property
     set `GeoTOP`. It is written to `data/geotop_bimdf.parquet` for the next notebooks, and rebuilt
     whenever a download replaces `data/geotop.nc`.
     """)
@@ -412,7 +412,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def geotop_legends(bromodels, mo, pl):
     def _with_hex(legend):
-        """A GeoTOP legend with its colour as a hex string, first."""
+        """A GeoTOP legend with its color as a hex string, first."""
         return legend.with_columns(
             color_hex=pl.struct("RED_DEC", "GREEN_DEC", "BLUE_DEC").map_elements(
                 lambda c: f"#{c['RED_DEC']:02x}{c['GREEN_DEC']:02x}{c['BLUE_DEC']:02x}", return_dtype=pl.String
@@ -496,7 +496,7 @@ def geotop_voxels(geotop_xr, lithok_map, mo, pl, strat_map):
 @app.cell
 def geotop_units(geotop_df, mo, pl):
     # One row per geological unit, from the top down: its topmost voxel, with the number of voxels in the unit.
-    # The unit and soil type come first, in their GeoTOP colours.
+    # The unit and soil type come first, in their GeoTOP colors.
     _names = ["geologische_eenheid", "stratigraphic_unit", "grondsoort", "lithoklasse"]
     _units = (
         geotop_df.sort("z", descending=True)
@@ -511,7 +511,7 @@ def geotop_units(geotop_df, mo, pl):
         if column not in _colors:
             return {}
         _color = _colors[column][int(row)]
-        # Dark text on light colours, white on dark ones
+        # Dark text on light colors, white on dark ones
         _r, _g, _b = (int(_color[_i : _i + 2], 16) for _i in (1, 3, 5))
         return {"backgroundColor": _color, "color": "black" if 0.299 * _r + 0.587 * _g + 0.114 * _b > 140 else "white"}
 
@@ -523,7 +523,7 @@ def geotop_units(geotop_df, mo, pl):
 @app.cell
 def voxel_size():
     # GeoTOP's x and y are the south-west corners of its 100 m columns (see geotop_cells); z is the
-    # centre of each 0.5 m voxel
+    # center of each 0.5 m voxel
     VOXEL_SIZE = (100.0, 100.0, 0.5)
     return (VOXEL_SIZE,)
 
@@ -569,7 +569,7 @@ def geotop_boxes(VOXEL_SIZE, bpl, geotop_df, pl):
 
 @app.cell
 def geotop_bimdf(DATA_DIR, bpl, geotop_rd):
-    # The site origin: the plan centre of the GeoTOP columns at NAP 0 m, with the axes along RD's.
+    # The site origin: the plan center of the GeoTOP columns at NAP 0 m, with the axes along RD's.
     # GeoSpeckleViewer draws a model near its CRS's origin.
     _bbox = geotop_rd["bbox"].struct.unnest()
     site_origin = (

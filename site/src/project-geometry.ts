@@ -24,7 +24,7 @@ function ringArea(ring: number[][]): number {
 }
 
 /** The actual geog WKB is decoded as GeoJSON by hyparquet's GeoParquet support.
- * Union in RD metres, ignoring Z for the horizontal footprint; retain its largest polygon.
+ * Union in RD meters, ignoring Z for the horizontal footprint; retain its largest polygon.
  */
 export function buildingFootprint(
   geometries: Array<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
@@ -34,7 +34,7 @@ export function buildingFootprint(
     for (const polygon of geometry.type === "Polygon"
       ? [geometry.coordinates]
       : geometry.coordinates) {
-      // Snap sub-millimetre projection noise before unioning thousands of
+      // Snap sub-millimeter projection noise before unioning thousands of
       // coincident floor/roof faces; retain a documented 1 mm horizontal precision.
       const projected = polygon
         .map((ring) => {
