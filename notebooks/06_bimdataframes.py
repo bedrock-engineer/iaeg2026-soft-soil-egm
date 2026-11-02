@@ -496,15 +496,19 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def revit_foundations(bpl, pl, site_crs):
-    # The piles and pile caps of Revit's advanced sample project, placed in Amsterdam Noord, in the site's CRS
-    foundations_bimdf = bpl.to_crs(
+def revit_model(BIMDATAFRAMES_DIR, bpl, pl, site_crs):
+    # Revit's advanced sample project, architecture and structure, placed in Amsterdam Noord, in the site's CRS, and
+    # its piles and pile caps
+    revit_bimdf = bpl.to_crs(
         bpl.read_parquet(
             "https://r2.eu.bedrock.engineer/bimpolars/rvt-advanced-sample/rvt-advanced-sample-combined-arch-str-bdf.parquet"
-        ).filter(pl.col("class") == "Structural Foundations"),
+        ),
         site_crs,
     )
-    return (foundations_bimdf,)
+    foundations_bimdf = revit_bimdf.filter(pl.col("class") == "Structural Foundations")
+    BIMDATAFRAMES_DIR.mkdir(exist_ok=True)
+    revit_bimdf.write_parquet(BIMDATAFRAMES_DIR / "rvt_advanced_sample_combined_arch_str.parquet")
+    return foundations_bimdf, revit_bimdf
 
 
 @app.cell(hide_code=True)
@@ -674,9 +678,9 @@ def speckle_signed_in_as(local_speckle, mo, speckle_signed_in, speckle_token):
 @app.cell(hide_code=True)
 def speckle_targets(
     cpts_bimdf,
-    foundations_bimdf,
     mo,
     pl,
+    revit_bimdf,
     speckle_client,
     volumes_bimdf,
 ):
@@ -687,7 +691,7 @@ def speckle_targets(
             pl.col("properties").struct.rename_fields(["properties.SBTn volume"])
         ),
         "Interpreted CPTs": cpts_bimdf.with_columns(pl.col("properties").struct.rename_fields(["properties.CPT"])),
-        "Revit foundations": foundations_bimdf,
+        "Revit model": revit_bimdf,
     }
     speckle_project = mo.ui.dropdown(
         {_project.name: _project.id for _project in speckle_client.active_user.get_projects(limit=100).items},
@@ -712,7 +716,7 @@ def speckle_model_choices(
     }
     speckle_models = mo.ui.dictionary({_label: mo.ui.dropdown(_models, label=_label) for _label in speckle_bimdfs})
     speckle_message = mo.ui.text(
-        value=f"SBTn of {saved_runs.value['run'][0]}", label="Message", full_width=True
+        value=f"SBTn of {saved_runs.value['run'][0]}", label="Message for the SBTn volumes and CPTs", full_width=True
     )
     publish_button = mo.ui.run_button(label="Publish")
     mo.vstack([*(speckle_models[_label] for _label in speckle_bimdfs), speckle_message, publish_button])
@@ -734,9 +738,10 @@ def publish(
     _chosen = {_label: _model for _label, _model in speckle_models.value.items() if _model}
     mo.stop(not _chosen, mo.md("Choose at least one model."))
     _project = speckle_project.value
+    _messages = {"Revit model": "Revit's advanced sample project, placed in Amsterdam Noord"}
     _published = []
     for _label, _model in mo.status.progress_bar(list(_chosen.items()), title="Publishing"):
-        _version = send(speckle_client, speckle_bimdfs[_label], _project, _model, message=speckle_message.value, name=_label)
+        _version = send(speckle_client, speckle_bimdfs[_label], _project, _model, message=_messages.get(_label, speckle_message.value), name=_label)
         _published.append(
             f"- {_label}: [version `{_version}`]({speckle_client.url}/projects/{_project}/models/{_model}@{_version})"
         )

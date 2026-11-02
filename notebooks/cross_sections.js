@@ -6,9 +6,10 @@
 // their 90th percentile. A CPT under the pointer in the plan shows its own qc, and clicking it selects
 // it (the selected_cpt trait), which moves the sections through it and keeps showing its qc. The voxels
 // are GeoTOP's or smaller cells of them (the cell trait), colored by their simulation domain,
-// stratigraphic unit, lithology class or a value (the values trait), whichever color_modes offers.
-// The optional footprints trait outlines rings of x and y in the plan, and marks their extent along the sections.
-// Narrower than COMPACT px, as on a phone, the sections are thinner and what the corner says goes under the canvas.
+// stratigraphic unit, lithology class or a value (the values trait), whichever color_modes offers. The
+// optional footprints trait outlines rings of x and y in the plan, and marks their extent along the
+// sections. Narrower than COMPACT px, as on a phone, the sections are thinner and what the corner says
+// goes under the canvas.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
