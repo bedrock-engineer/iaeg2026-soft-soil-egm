@@ -8,8 +8,11 @@
 // are GeoTOP's or smaller cells of them (the cell trait), colored by their simulation domain,
 // stratigraphic unit, lithology class or a value (the values trait), whichever color_modes offers. The
 // optional footprints trait outlines rings of x and y in the plan, and marks their extent along the
-// sections. Narrower than COMPACT px, as on a phone, the sections are thinner and what the corner says
-// goes under the canvas.
+// sections. The corner says where the plan and sections are, and, while the pointer is over a voxel, what
+// that voxel is: first, in bold, what its color shows. The optional class_labels trait renames the
+// domain, unit and lithology classes there and on the buttons, e.g. {"lithology": "Soil behavior type"}.
+// Narrower than COMPACT px, as on a phone, the sections are thinner and what the corner says goes under
+// the canvas.
 
 const SECTION = 180; // px, the depth of the sections
 const GAP = 12;
@@ -28,6 +31,7 @@ const BLUE = "#1f77b4";
 const CPT_BLUE = "#08519c";
 const CPT_PICK_PX = 6;
 const CLICK_PX = 4; // how far a press may move and still be a click
+const LINE = 14; // px, a line of the corner's text
 /** What the voxels can be colored by, with its button's label; "value" takes value_scale's label */
 const COLOR_BY = { domain: "Simulation domain", unit: "Stratigraphic unit", lithology: "Lithology class", value: "Value" };
 /** Color schemes for values, from low to high */
@@ -101,8 +105,14 @@ function wrap(ctx, text, width) {
   return line ? [...lines, line] : lines;
 }
 
-/** A value's color on a scale {min, max, log, scheme}, by linear interpolation between the scheme's colors */
+/**
+ * A value's color on a scale {min, max, log, scheme}, by linear interpolation between the scheme's colors.
+ * A scale with classes [{name, color}] holds indices into them instead.
+ */
 function scaleColor(scale) {
+  if (scale.classes) {
+    return (value) => scale.classes[value]?.color ?? NOT_SIMULATED;
+  }
   const stops = (SCHEMES[scale.scheme] ?? SCHEMES.viridis).map((hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16)));
   const position = scale.log
     ? (value) => (Math.log(value) - Math.log(scale.min)) / (Math.log(scale.max) - Math.log(scale.min))
@@ -116,6 +126,22 @@ function scaleColor(scale) {
     const rgb = stops[k].map((low, c) => Math.round(low + (stops[k + 1][c] - low) * (t - k)));
     return `rgb(${rgb.join(",")})`;
   };
+}
+
+/** A scale's label with its unit, as the legend shows it: "qc median (MPa)" */
+function scaleLabel(scale) {
+  return scale?.unit ? `${scale.label} (${scale.unit})` : (scale?.label ?? COLOR_BY.value);
+}
+
+/** A value as the corner shows it: a class's name, or three significant digits with the scale's unit */
+function valueText(scale, value) {
+  if (scale?.classes) {
+    return scale.classes[value]?.name ?? "none";
+  }
+  if (!Number.isFinite(value)) {
+    return "none";
+  }
+  return `${Number(value.toPrecision(3))}${scale?.unit ? ` ${scale.unit}` : ""}`;
 }
 
 function render({ model, el }) {
@@ -135,7 +161,7 @@ function render({ model, el }) {
     toolbar.style.display = modes.length > 1 ? "flex" : "none";
     buttons = modes.map((mode) => {
       const button = document.createElement("button");
-      button.textContent = mode === "value" ? (model.get("value_scale")?.label ?? COLOR_BY.value) : COLOR_BY[mode];
+      button.textContent = mode === "value" ? scaleLabel(model.get("value_scale")) : classLabels()[mode];
       button.addEventListener("click", () => {
         model.set("color_by", mode);
         model.save_changes();
@@ -154,9 +180,9 @@ function render({ model, el }) {
   // what is under the pointer
   const status = document.createElement("div");
   status.style.cssText =
-    "display: none; grid-template-columns: 1fr 1fr; gap: 0 8px; height: 112px; overflow: hidden; margin-top: 4px; font: 11px/14px sans-serif;";
-  const [where, under] = [document.createElement("div"), document.createElement("div")];
-  status.append(where, under);
+    "display: none; grid-template-columns: 1fr 1fr; gap: 0 8px; height: 168px; overflow: hidden; margin-top: 4px; font: 11px/14px sans-serif;";
+  const [whereColumn, underColumn] = [document.createElement("div"), document.createElement("div")];
+  status.append(whereColumn, underColumn);
   root.append(toolbar, canvas, status, legend);
   el.appendChild(root);
   const ctx = canvas.getContext("2d");
@@ -168,6 +194,9 @@ function render({ model, el }) {
   let hoverCpt = null;
   let dragging = null;
   let pressed = null;
+
+  /** The names of what the voxels can be colored by, with the notebook's own for the classes */
+  const classLabels = () => ({ ...COLOR_BY, ...(model.get("class_labels") ?? {}) });
 
   // The voxels by position, their size and levels, and the model's extent: x and y are a voxel's
   // south-west corner, z its center
@@ -493,55 +522,89 @@ function render({ model, el }) {
       ctx.restore();
     }
 
-    // Where the plan and sections are, and the voxel under the pointer
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    const lines = [
+    // Where the plan and sections are, or what is under the pointer
+    const where = [
       `Plan at z = ${z0.toFixed(dz < VOXEL ? 2 : 1)} m NAP`,
       `W–E section at y = ${y0}–${y0 + dy}`,
       `S–N section at x = ${x0}–${x0 + dx}`,
       ...(selected ? [`Selected CPT ${selected.bro_id}`] : []),
     ];
-    if (hovered) {
-      lines.push(
-        "",
-        `CPT ${hovered.bro_id}`,
-        `z ${hovered.z[0].toFixed(1)} to ${hovered.z[hovered.z.length - 1].toFixed(1)} m NAP`,
-      );
-    }
-    // The hovered voxel's domain, in bold
-    let bold = -1;
-    if (hover !== null) {
-      const [x, y, z, unit, lithology] = grid.voxels[hover];
-      bold = lines.length + 1;
-      lines.push(
-        "",
-        domains[domainOf[hover]]?.name ?? "not simulated",
-        ...(values ? [`${model.get("value_scale")?.label ?? "value"}: ${values[hover].toPrecision(3)}`] : []),
-        ...(layout.compact ? [model.get("units")[unit]?.name ?? ""] : wrap(ctx, model.get("units")[unit]?.name ?? "", corner.w - 12)),
-        model.get("lithologies")[lithology]?.name ?? "",
-        `x ${x}–${x + dx}, y ${y}–${y + dy}`,
-        `z ${z.toFixed(dz < VOXEL ? 2 : 1)} m NAP`,
-      );
-    }
+    const pointed = hovered
+      ? [
+          { text: `CPT ${hovered.bro_id}` },
+          { text: `z ${hovered.z[0].toFixed(1)} to ${hovered.z[hovered.z.length - 1].toFixed(1)} m NAP` },
+          // Of the voxel under it, only what its color shows
+          ...(hover !== null ? [{ text: "" }, voxelLines(hover)[0]] : []),
+        ]
+      : hover !== null
+        ? voxelLines(hover)
+        : [];
     if (layout.compact) {
-      // Up to the first blank line where the plan and sections are, after it what is under the pointer
-      const split = lines.includes("") ? lines.indexOf("") : lines.length;
-      const column = (from, to) =>
-        lines.slice(from, to).map((text, k) => {
-          const item = document.createElement("div");
-          item.textContent = text || "\u00a0";
-          item.style.fontWeight = from + k === bold ? "bold" : "";
-          return item;
-        });
-      where.replaceChildren(...column(0, split));
-      under.replaceChildren(...column(split + 1, lines.length));
+      writeColumn(whereColumn, where.map((text) => ({ text })));
+      writeColumn(underColumn, pointed);
       return;
     }
-    lines.forEach((text, k) => {
-      ctx.font = k === bold ? "bold 11px sans-serif" : "11px sans-serif";
-      ctx.fillText(text, corner.x + 6, corner.y + 4 + k * 14);
+    // In the corner, wrapped to its width: what is under the pointer instead of where the sections are, as
+    // long as there is something
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const shown = (pointed.length ? pointed : where.map((text) => ({ text }))).flatMap(({ text, bold }) => {
+      ctx.font = bold ? "bold 11px sans-serif" : "11px sans-serif";
+      // As wide as the canvas lets it be: the corner and the margin right of it
+      return (text ? wrap(ctx, text, corner.w - 2) : [""]).map((part) => ({ text: part, bold }));
     });
+    const room = Math.floor((corner.h - 4) / LINE);
+    if (shown.length > room) {
+      shown.length = room;
+      shown[room - 1] = { text: "…" };
+    }
+    shown.forEach(({ text, bold }, k) => {
+      ctx.font = bold ? "bold 11px sans-serif" : "11px sans-serif";
+      ctx.fillText(text, corner.x + 6, corner.y + 4 + k * LINE);
+    });
+    ctx.font = "11px sans-serif";
+  }
+
+  /** Lines of text in a column under the canvas, the bold ones in bold */
+  function writeColumn(column, lines) {
+    column.replaceChildren(
+      ...lines.map(({ text, bold }) => {
+        const item = document.createElement("div");
+        item.textContent = text || "\u00a0";
+        item.style.fontWeight = bold ? "bold" : "";
+        return item;
+      }),
+    );
+  }
+
+  /**
+   * What voxel i is, a line each, labeled: first, in bold, what its color shows, then its lithology class,
+   * value, domain and stratigraphic unit (with its name), and where it is
+   */
+  function voxelLines(i) {
+    const [x, y, z, unit, lithology] = grid.voxels[i];
+    const { dx, dy, dz } = grid;
+    const labels = classLabels();
+    const scale = model.get("value_scale");
+    const unitOf = model.get("units")[unit];
+    const unitName = unitOf?.name && unitOf.name !== unitOf.code ? `, ${unitOf.name}` : "";
+    const lines = {
+      lithology: `${labels.lithology}: ${model.get("lithologies")[lithology]?.name ?? "none"}`,
+      value: values ? `${scale?.label ?? labels.value}: ${valueText(scale, values[i])}` : null,
+      domain: `${labels.domain}: ${model.get("domains")[model.get("domain_of")[i]]?.name ?? "not simulated"}`,
+      unit: unitOf ? `${labels.unit}: ${unitOf.code ?? unitOf.name}${unitName}` : null,
+    };
+    const colorBy = model.get("color_by");
+    const first = lines[colorBy] ? colorBy : null;
+    return [
+      ...(first ? [{ text: lines[first], bold: true }] : []),
+      ...Object.entries(lines)
+        .filter(([name, text]) => text && name !== first)
+        .map(([, text]) => ({ text })),
+      { text: `x ${x}–${x + dx}` },
+      { text: `y ${y}–${y + dy}` },
+      { text: `z ${z.toFixed(dz < VOXEL ? 2 : 1)} m NAP` },
+    ];
   }
 
   // Each voxel's color: its domain's (gray where it is not simulated), its stratigraphic unit's,
@@ -555,11 +618,11 @@ function render({ model, el }) {
     }
     if (colorBy === "unit") {
       const units = model.get("units");
-      return (i) => units[voxels[i][3]].color;
+      return (i) => units[voxels[i][3]]?.color ?? NOT_SIMULATED;
     }
     if (colorBy === "lithology") {
       const lithologies = model.get("lithologies");
-      return (i) => lithologies[voxels[i][4]].color;
+      return (i) => lithologies[voxels[i][4]]?.color ?? NOT_SIMULATED;
     }
     const domainOf = model.get("domain_of");
     const domains = model.get("domains");
@@ -576,7 +639,7 @@ function render({ model, el }) {
     const strip = document.createElement("span");
     strip.style.cssText = `display: inline-block; width: 220px; height: 12px; border: 1px solid #bbb; background: linear-gradient(to right, ${gradient});`;
     const label = (value) => Number(value.toPrecision(3)).toString();
-    bar.append(scale.label ?? "", ` ${label(scale.min)}`, strip, `${label(scale.max)}`, scale.log ? " (logarithmic)" : "");
+    bar.append(scaleLabel(scale), ` ${label(scale.min)}`, strip, `${label(scale.max)}`, scale.log ? " (logarithmic)" : "");
     return bar;
   }
 
@@ -585,12 +648,14 @@ function render({ model, el }) {
   function fillLegend() {
     const colorBy = model.get("color_by");
     let items;
-    if (colorBy === "value" && values) {
-      items = [colorBar(model.get("value_scale"))];
+    const scale = model.get("value_scale");
+    if (colorBy === "value" && values && !scale?.classes) {
+      items = [colorBar(scale)];
     } else {
       const classes = {
         unit: model.get("units").map(({ code, name, color }) => ({ name: code, title: name, color })),
         lithology: model.get("lithologies"),
+        value: scale?.classes,
       }[colorBy] ?? [...model.get("domains"), { name: "not simulated", color: NOT_SIMULATED }];
       items = classes.map(({ name, title, color }) => {
         const item = document.createElement("span");
@@ -716,7 +781,7 @@ function render({ model, el }) {
   for (const name of ["x", "y", "z", "selected_cpt", "domain_of", "cpts"]) {
     model.on(`change:${name}`, draw);
   }
-  for (const name of ["domains", "units", "lithologies", "color_by", "color_modes", "value_scale"]) {
+  for (const name of ["domains", "units", "lithologies", "color_by", "color_modes", "value_scale", "class_labels"]) {
     model.on(`change:${name}`, () => {
       fillToolbar();
       fillLegend();
