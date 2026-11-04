@@ -1,16 +1,21 @@
 // The CrossSections widget's traits as the GeoBIM notebook sets them, apart from the widget so that
 // scripts/check-soil.ts can check them in Node.
 import type { Sample } from "./cpt-samples.ts";
+import { legendOf, UNITS } from "./geotop.ts";
 import { type Grid, isKept, KEPT_ZONES, zoneColor, zoneLabel } from "./soil-model.ts";
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 export interface ValueScale {
   label: string;
+  /** Shown after the values, and in brackets after the label in the legend */
+  unit?: string;
   log: boolean;
   min: number;
   max: number;
   scheme: "viridis" | "oranges";
+  /** For classes instead of numbers: the values are indices into them */
+  classes?: Array<{ name: string; color: string }>;
 }
 
 /** The widget's traits: the TS mirror of the notebook's */
@@ -27,7 +32,9 @@ export interface CrossSectionsModel {
   /** Rings of [x, y] in RD New */
   footprints: number[][][];
   color_modes: string[];
-  color_by: "lithology" | "domain" | "value";
+  /** The names of the classes in the corner: the lithology classes are SBTn zones here */
+  class_labels: { lithology: string; unit: string; domain: string };
+  color_by: "lithology" | "unit" | "domain" | "value";
   /** float32 bytes per cell, null for none */
   values: DataView | null;
   value_scale: ValueScale | null;
@@ -49,6 +56,8 @@ export function crossSectionTraits(
 ) {
   const [nx, ny] = [grid.x.length, grid.y.length];
   const { cell } = grid;
+  // The stratigraphic units from young to old, with their names
+  const units = legendOf(UNITS, grid.units);
   const cells: number[] = [];
   const voxels: number[][] = [];
   grid.z.forEach((z, k) => {
@@ -64,7 +73,7 @@ export function crossSectionTraits(
           round3(grid.x[i] - cell.x / 2),
           round3(grid.y[j] - cell.y / 2),
           round3(z),
-          grid.stratigraphicUnit[index],
+          units.index[grid.stratigraphicUnit[index]] ?? -1,
           KEPT_ZONES.indexOf(zone),
         ]);
       }
@@ -101,13 +110,14 @@ export function crossSectionTraits(
   const traits: CrossSectionsModel = {
     voxels,
     cell,
-    units: grid.units.map((code) => ({ code, name: code, color: "#cccccc" })),
+    units: units.classes,
     lithologies: KEPT_ZONES.map((zone) => ({ name: zoneLabel(zone), color: zoneColor(zone) })),
     cpts,
     domains: grid.domains.map((name) => ({ name, color: domainColors[name] })),
     domain_of: Int8Array.from(cells, (index) => grid.domain[index]),
     footprints: [footprint],
     color_modes: [],
+    class_labels: { lithology: "Soil behavior type", unit: "GeoTOP unit", domain: "Simulation domain" },
     color_by: "lithology",
     values: null,
     value_scale: null,

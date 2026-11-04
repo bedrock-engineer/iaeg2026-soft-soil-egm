@@ -32,6 +32,12 @@ zarr.registry.set("zstd", () => ({
   }),
 }) as never);
 
+/** A category array's names, from its CF flag_meanings, where a name's spaces are underscores */
+const names = (attrs: Record<string, unknown>) =>
+  String(attrs.flag_meanings)
+    .split(" ")
+    .map((name) => name.replaceAll("_", " "));
+
 /** The cells' grid: their centers in RD New and m NAP, and what the page always needs of them */
 export interface Grid {
   /** Cell centers, x and y ascending, z ascending */
@@ -54,8 +60,8 @@ export interface Grid {
 export const cellIndex = (grid: Grid, k: number, j: number, i: number) =>
   (k * grid.y.length + j) * grid.x.length + i;
 
-/** The 3D float arrays of the cells, (z, y, x) */
-export type CellValues = "qc_p50" | "ic_p10" | "ic_p50" | "ic_p90";
+/** The 3D float arrays of the cells, (z, y, x): the P10, P50 and P90 of the realizations */
+export type CellValues = `${"qc" | "fs" | "ic"}_p${10 | 50 | 90}`;
 
 export class SoilModel {
   readonly #group = zarr.open.v3(
@@ -64,6 +70,7 @@ export class SoilModel {
   );
   readonly #values = new Map<string, Promise<Float32Array>>();
   #probability: Promise<Float32Array[]> | null = null;
+  #lithology: Promise<{ classes: Int8Array; names: string[] }> | null = null;
 
   async #read<T>(name: string): Promise<{ data: T; attrs: Record<string, unknown> }> {
     const array = await zarr.open.v3((await this.#group).resolve(name), { kind: "array" });
@@ -81,7 +88,6 @@ export class SoilModel {
       this.#read<Int8Array>("domain"),
       this.#read<Int8Array>("stratigraphic_unit"),
     ]);
-    const names = (attrs: Record<string, unknown>) => String(attrs.flag_meanings).split(" ");
     return {
       x: x.data,
       y: y.data,
@@ -93,6 +99,15 @@ export class SoilModel {
       domains: names(domain.attrs),
       units: names(unit.attrs),
     };
+  }
+
+  /** GeoTOP's lithology class per cell, as indices into their Dutch names: 450 kB, read once */
+  geotopLithology(): Promise<{ classes: Int8Array; names: string[] }> {
+    this.#lithology ??= this.#read<Int8Array>("geotop_lithology_class").then(({ data, attrs }) => ({
+      classes: data,
+      names: names(attrs),
+    }));
+    return this.#lithology;
   }
 
   /** One of the float arrays, read once: some 2 MB decoded */
