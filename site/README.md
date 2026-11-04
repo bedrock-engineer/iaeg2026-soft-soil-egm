@@ -13,6 +13,16 @@ its HTML layout, CSS, draggable 60/40 split, native GeoSpeckleViewer, footprint 
 basemap controls, selection cards, and shift-click selection. The model and intro are
 adapted to Amsterdam Noord. BRO location layers are the additional map control.
 
+## The header and the loading still
+
+The header ends in the repository's GitHub mark, right of the chevron and outside the intro's
+`<summary>`, so that it stays in sight with the intro collapsed. Until the models are in, the
+viewer pane shows `src/baseline/loading.jpg` under the loading message: a still of the loaded view,
+which the CSS greys out. Retake it when the models or the camera change, where OSM and PDOK load
+(not the cloud container): a screenshot of `#viewer-pane` on the live page at 1440 × 900, device
+scale 2, JPEG quality 70, without the Layers panel, once `#loading` is hidden and the 3D BAG has
+streamed in.
+
 ## The viewer
 
 The browser reads architecture and structure directly from the public model:

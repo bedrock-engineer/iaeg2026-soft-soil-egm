@@ -299,7 +299,9 @@ async function main() {
     loading.hidden = true;
   } catch (error) {
     console.error("The page failed to load", error);
-    loading.textContent = `The model failed to load: ${error}`;
+    loading.replaceChildren(
+      paragraph("", `The model failed to load: ${error}`),
+    );
   }
 }
 
