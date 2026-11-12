@@ -13,6 +13,18 @@ its HTML layout, CSS, draggable 60/40 split, native GeoSpeckleViewer, footprint 
 basemap controls, selection cards, and shift-click selection. The model and intro are
 adapted to Amsterdam Noord. BRO location layers are the additional map control.
 
+## The header and the loading stills
+
+The header ends in the repository's GitHub mark, right of the chevron and outside the intro's
+`<summary>`, so that it stays in sight with the intro collapsed. Until they are in, the viewer
+pane, the cross sections and the CPT plot show a still of themselves faded under their loading
+message: `src/baseline/still-3d.webp`, `still-sections.webp` and `still-cpt.webp`, cropped from
+joost's screenshots of the loaded page (the view without the Layers button, the sections and the
+plot from their Color by and Plot rows down to their captions). Retake them when the models, the
+camera or the widgets change, from a screenshot in a browser with a GPU (headless Chromium's
+software WebGL stripes the faces, and the cloud container can't load OSM and PDOK): crop, scale to
+1 CSS pixel per pixel, greyscale, WebP quality 50 (15 to 25 KB each).
+
 ## The viewer
 
 The browser reads architecture and structure directly from the public model:
@@ -22,6 +34,13 @@ and beside it the soil's BimDataFrames from <https://r2.eu.bedrock.engineer/nl-a
 per most likely SBTn zone). Hyparquet reads the mesh/material columns and decodes the GeoParquet WKB
 coordinates. The runtime adapter creates native viewer objects, one model each, and matching
 per-element map footprints.
+
+The page uses what comes in as it comes (`loadR2Model`), so that the map moves at once (joost): the
+map opens on the `geog` bbox in the model file's GeoParquet metadata, as soon as the file's footer
+is read; the building's outline follows from the light columns (`geog` and the ids), which the
+cross sections wait for too; the footprints and the viewer's models follow once the meshes are
+decoded and built. Both reads of the model share the file and its metadata, and fetch only their
+own columns.
 
 Each frame's CRS is a site grid on RD New + NAP. The building is published in the soil's ("GeoTOP
 georeferenced BIM CRS", meters, z in m NAP); `src/site-crs.ts` reads the affine transformation and

@@ -37,11 +37,11 @@ body {
   font: 14px/1.45 var(--font);
 }
 
+/* The intro, then the repository's GitHub mark on the title's line */
 .bar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 24px;
+  align-items: flex-start;
+  gap: 20px;
   padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px
     max(16px, env(safe-area-inset-left, 0px));
   border-bottom: 1px solid var(--line);
@@ -51,6 +51,24 @@ body {
 .intro {
   flex: 1 1 520px;
   min-width: 0;
+}
+
+.repo {
+  flex: none;
+  color: var(--fg);
+  opacity: 0.75;
+}
+
+.repo:hover,
+.repo:focus-visible {
+  opacity: 1;
+}
+
+/* The title's line height, so that the mark sits on it */
+.repo svg {
+  display: block;
+  width: 24px;
+  height: 24px;
 }
 
 h1 {
@@ -229,14 +247,64 @@ a {
   inset: 0;
 }
 
+/* What loads, as a still of it (greyscale WebP) faded under the message: the view, the cross
+   sections and the CPT plot to come */
+.still {
+  position: relative;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  background: var(--panel);
+}
+
+.still::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0.4;
+}
+
+.still p {
+  margin: 0 16px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--panel);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+}
+
+/* Over the whole viewer pane */
 .loading {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  color: var(--muted);
-  background: var(--panel);
+}
+
+.loading::before {
+  background-image: url("./still-3d.webp");
+}
+
+/* In the stills' proportions, at most their size: about what the sections and the plot take */
+#cross-sections > .still {
+  max-width: 780px;
+  aspect-ratio: 780 / 783;
+}
+
+#cross-sections > .still::before {
+  background-image: url("./still-sections.webp");
+}
+
+#cpt-plot > .still {
+  max-width: 780px;
+  aspect-ratio: 780 / 643;
+}
+
+#cpt-plot > .still::before {
+  background-image: url("./still-cpt.webp");
 }
 
 .basemaps {
@@ -368,10 +436,6 @@ a {
 
 .soil h2 + * {
   margin-bottom: 24px;
-}
-
-.pending {
-  color: var(--muted);
 }
 
 /* The radio, and under it the chosen parameter's dropdown; the dropdown's row keeps its height without

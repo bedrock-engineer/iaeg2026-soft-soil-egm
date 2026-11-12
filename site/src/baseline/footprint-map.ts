@@ -74,29 +74,30 @@ function middle(feature: Feature<Polygon | MultiPolygon>): Position {
   return (bounds([feature]) as LngLatBounds).getCenter().toArray();
 }
 
+const NO_FOOTPRINTS: Footprints = { type: "FeatureCollection", features: [] };
+
 /**
  * A MapLibre map of a model's footprints on PDOK's topographic map: the building's outline
  * dotted red, and for a selection its footprints filled, with a ring around each so that a column's half
- * meter stands out, and the other footprints of their storeys faint.
+ * meter stands out, and the other footprints of their storeys faint. It opens on the building's
+ * bounds alone, so that it moves before the outline (setOutline) and the footprints (setFootprints)
+ * are in.
  */
 export class FootprintMap {
   readonly map: MaplibreMap;
-  readonly #footprints: Footprints;
-  readonly #outline: FeatureCollection;
+  #footprints = NO_FOOTPRINTS;
+  #outline: FeatureCollection = NO_FOOTPRINTS;
   #ids: string[] = [];
 
-  constructor(container: HTMLElement, footprints: Footprints, outline: FeatureCollection) {
-    this.#footprints = footprints;
-    this.#outline = outline;
-    const home = bounds(outline.features as Feature<Polygon | MultiPolygon>[]);
+  constructor(container: HTMLElement, home: [number, number, number, number]) {
     this.map = new MaplibreMap({
       container,
       style: {
         version: 8,
         sources: {
           ...BASEMAPS,
-          outline: { type: "geojson", data: outline },
-          footprints: { type: "geojson", data: footprints },
+          outline: { type: "geojson", data: NO_FOOTPRINTS },
+          footprints: { type: "geojson", data: NO_FOOTPRINTS },
           rings: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
         },
         layers: [
@@ -157,7 +158,7 @@ export class FootprintMap {
           },
         ],
       },
-      bounds: home ?? undefined,
+      bounds: home,
       fitBoundsOptions: { padding: 40 },
       maxZoom: 22,
       // Turn, never tilt (joost): a right-drag, Ctrl-drag or pinch turns the map; no drag,
@@ -168,6 +169,32 @@ export class FootprintMap {
     });
     this.map.addControl(new NavigationControl({ showCompass: true }), "top-left");
     this.map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
+  }
+
+  /** The building's outline, once it is in */
+  setOutline(outline: FeatureCollection) {
+    this.#outline = outline;
+    this.#styled(() => (this.map.getSource("outline") as GeoJSONSource).setData(outline));
+  }
+
+  /** The models' footprints, once they are in; a selection made before shows on them */
+  setFootprints(footprints: Footprints) {
+    this.#footprints = footprints;
+    this.#styled(() => {
+      (this.map.getSource("footprints") as GeoJSONSource).setData(footprints);
+      if (this.#ids.length) {
+        this.select(this.#ids);
+      }
+    });
+  }
+
+  /** Runs apply once the map has its sources, which it takes a frame after it is made */
+  #styled(apply: () => void) {
+    if (this.map.getSource("footprints")) {
+      apply();
+    } else {
+      this.map.once("style.load", apply);
+    }
   }
 
   /** Shows one of the BASEMAPS */
