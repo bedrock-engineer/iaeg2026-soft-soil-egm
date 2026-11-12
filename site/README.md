@@ -107,5 +107,5 @@ y 488,750, z −14.125 with CPT000000198164.
 
 `.github/workflows/pages.yml` builds and deploys the site. It also copies the talk's slides,
 `presentation/IAEG2026_Soft-Soil-EGM.html`, to `slides/index.html` beside the page, which links them
-in its bar. `npm run dev` and `npm run build` leave them out, so the link only works on the published
+in its intro. `npm run dev` and `npm run build` leave them out, so the link only works on the published
 page.
