@@ -179,9 +179,85 @@
         <h2>CPT</h2>
         <div id="cpt-plot">
           <p class="pending">
-            Loading the probabilities and Ic of the cells for the selected CPT…
+            Loading the probabilities and qc of the cells for the selected CPT…
           </p>
         </div>
+        <h2 id="notebooks-title">Notebooks</h2>
+        <!-- The workflow behind the page, as the README describes it -->
+        <ol class="notebooks" aria-labelledby="notebooks-title">
+          <li>
+            <a href="https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/01_get_data.py"
+              ><code>01</code> Download model data</a
+            >
+            <span>GeoTOP voxels, CPTs and geotechnical boreholes around the building, from the BRO.</span>
+            <a href="https://molab.marimo.io/github/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/01_get_data.py"
+              ><img
+                src="https://marimo.io/molab-shield.svg"
+                alt="Open 01_get_data.py in molab"
+                height="20"
+            /></a>
+          </li>
+          <li>
+            <a href="https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/02_simulation_domains.py"
+              ><code>02</code> Simulation domains</a
+            >
+            <span>GeoTOP’s voxels grouped into simulation domains, with their CPT data compared.</span>
+            <a href="https://molab.marimo.io/github/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/02_simulation_domains.py"
+              ><img
+                src="https://marimo.io/molab-shield.svg"
+                alt="Open 02_simulation_domains.py in molab"
+                height="20"
+            /></a>
+          </li>
+          <li>
+            <a href="https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/03_variograms.py"
+              ><code>03</code> Variograms</a
+            >
+            <span>Variograms of log₁₀ qc and log₁₀ fs fitted per simulation domain.</span>
+            <a href="https://molab.marimo.io/github/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/03_variograms.py"
+              ><img
+                src="https://marimo.io/molab-shield.svg"
+                alt="Open 03_variograms.py in molab"
+                height="20"
+            /></a>
+          </li>
+          <li>
+            <a href="https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/04_simulation.py"
+              ><code>04</code> Simulation</a
+            >
+            <span>Conditional Gaussian simulation of qc, with fs co-simulated, in each domain.</span>
+            <a href="https://molab.marimo.io/github/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/04_simulation.py"
+              ><img
+                src="https://marimo.io/molab-shield.svg"
+                alt="Open 04_simulation.py in molab"
+                height="20"
+            /></a>
+          </li>
+          <li>
+            <a href="https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/05_cpt_classification.py"
+              ><code>05</code> CPT classification</a
+            >
+            <span>Each realization classified into Robertson’s soil behavior types (SBTn).</span>
+            <a href="https://molab.marimo.io/github/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/05_cpt_classification.py"
+              ><img
+                src="https://marimo.io/molab-shield.svg"
+                alt="Open 05_cpt_classification.py in molab"
+                height="20"
+            /></a>
+          </li>
+          <li>
+            <a href="https://github.com/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/06_bimdataframes.py"
+              ><code>06</code> BimDataFrames</a
+            >
+            <span>Interpreted CPTs and SBTn volumes as BimDataFrames, published to Speckle.</span>
+            <a href="https://molab.marimo.io/github/bedrock-engineer/iaeg2026-soft-soil-egm/blob/main/notebooks/06_bimdataframes.py"
+              ><img
+                src="https://marimo.io/molab-shield.svg"
+                alt="Open 06_bimdataframes.py in molab"
+                height="20"
+            /></a>
+          </li>
+        </ol>
       </section>
       <!-- The stacked layout's: the strip where a swipe scrolls the page, the viewer and the cross
            sections take the touches for the camera and the sections -->

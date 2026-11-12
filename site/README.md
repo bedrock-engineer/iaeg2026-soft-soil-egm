@@ -60,16 +60,26 @@ statistics on the card.
 
 `notebooks/cross_sections.js`, the notebooks' anywidget, renders on a StaticModel as the viewer
 does (`src/cross-sections.ts`), with the traits the GeoBIM notebook sets
-(`src/cross-section-traits.ts`) and a Color by choice above it. The cells are read with zarrita from
-`soil_model.zarr`, group `25cm`, by name: the grid's int8 arrays first, and each float array when a
-mode needs it. The probabilities (16 MB decoded) load after the first paint.
+(`src/cross-section-traits.ts`) and a Color by choice above it: the soil behavior type, an SBTn
+probability (the most likely zone's or a zone's), the median or spread of qc, fs or Ic, the simulation
+domain, or GeoTOP's stratigraphic unit or lithology class, with a dropdown under the radio for the
+choices that have more than one view. GeoTOP's units and classes have their GeoTOP colors and English
+names (`src/geotop.ts`). The corner of the sections says what the cell under the pointer is, first, in
+bold, what its color shows. The cells are read with zarrita from `soil_model.zarr`, group `25cm`, by
+name: the grid's int8 arrays first, and each other array when a choice needs it. The probabilities
+(16 MB decoded) load after the first paint.
 
 `src/robertson.ts` ports `robertson` from `notebooks/cpt_robertson_classification.py` step for
 step, and `src/cpt-samples.ts` the CPT samples of `03_variograms.py` and their classification in
 `06_bimdataframes.py`, from `cpts.parquet`. Their `voxel_z` rounds halves to even, as polars'
 `round()` does: that is what gives the notebooks' 8,961 samples and 8,901 usable ones. The plot under
 the sections (`src/cpt-plot.ts`) is the notebook's Altair chart as a Vega-Lite spec; Vega loads
-with it. It follows the CPT clicked in the plan.
+with it. It follows the CPT clicked in the plan. Its radio plots qc, fs or Ic of the realizations
+with the CPT's samples, and follows the sections when they are colored by one of these; it never
+changes them.
+
+Under the plot, the notebooks `01` to `06` link to their source and open in
+[molab](https://molab.marimo.io).
 
 SBTn zones 1, 8 and 9 hardly occur and are left out everywhere: volumes, CPT layers, cells,
 legends and CPT samples.

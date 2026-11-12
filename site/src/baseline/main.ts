@@ -7,7 +7,7 @@ import type { Basemap, FootprintMap } from "./footprint-map";
 import { type Footprints, selectedFootprints } from "./footprints";
 import { splitter } from "./splitter";
 import { classifySamples, readReadings, samplesOf } from "../cpt-samples.ts";
-import { mountCptPlot } from "../cpt-plot.ts";
+import { CPT_PARAMETERS, type CptParameter, mountCptPlot } from "../cpt-plot.ts";
 import { mountCrossSections } from "../cross-sections.ts";
 import { gammaMissing, SoilModel } from "../soil-model.ts";
 import { viewerControls, zoneCheckboxes } from "../viewer-controls.ts";
@@ -155,7 +155,7 @@ function describe(
   card.replaceChildren(...lines);
 }
 
-/** The cross sections, then the CPT plot under them once the probabilities and Ic are there */
+/** The cross sections, then the CPT plot under them once the probabilities and qc are there */
 async function soilSections(ring: Promise<number[][]>) {
   const sectionsPane = byId("cross-sections");
   const plotPane = byId("cpt-plot");
@@ -170,7 +170,17 @@ async function soilSections(ring: Promise<number[][]>) {
     const all = samplesOf(readings, SAMPLE_HEIGHT);
     const { usable } = classifySamples(all, grid, SAMPLE_HEIGHT, gamma);
     sectionsPane.replaceChildren();
-    const sections = mountCrossSections(sectionsPane, soil, grid, all, footprint);
+    // The CPT plot shows qc, fs or Ic as the sections last did: they set its radio, it never sets theirs
+    const isCptParameter = (parameter: string): parameter is CptParameter =>
+      (CPT_PARAMETERS as readonly string[]).includes(parameter);
+    let follow: CptParameter = "qc";
+    let plot: ReturnType<typeof mountCptPlot> | null = null;
+    const sections = mountCrossSections(sectionsPane, soil, grid, all, footprint, (parameter) => {
+      if (isCptParameter(parameter)) {
+        follow = parameter;
+        plot?.show(parameter);
+      }
+    });
     // What the sections report, for the headless test
     const report = () => {
       sectionsPane.dataset.selectedCpt = sections.get("selected_cpt") ?? "";
@@ -178,18 +188,20 @@ async function soilSections(ring: Promise<number[][]>) {
     sections.on("change:selected_cpt", report);
     report();
 
-    const [probability, p10, p50, p90] = await Promise.all([
-      soil.probability(),
-      soil.values("ic_p10"),
-      soil.values("ic_p50"),
-      soil.values("ic_p90"),
-    ]);
+    const percentiles = async (parameter: CptParameter) => {
+      const [p10, p50, p90] = await Promise.all(
+        ([10, 50, 90] as const).map((p) => soil.values(`${parameter}_p${p}`)),
+      );
+      return { p10, p50, p90 };
+    };
+    const [probability] = await Promise.all([soil.probability(), percentiles(follow)]);
     const cpts = new Map(sections.get("cpts").map((cpt) => [cpt.bro_id, cpt]));
     // A click on a CPT in the plan draws it; moving the sections does not
-    const plot = mountCptPlot(
+    plot = mountCptPlot(
       plotPane,
-      { grid, probability, ic: { p10, p50, p90 }, samples: usable },
+      { grid, probability, percentiles, samples: usable },
       () => cpts.get(sections.get("selected_cpt") ?? "") ?? null,
+      follow,
     );
     sections.on("change:selected_cpt", plot.draw);
   } catch (error) {
