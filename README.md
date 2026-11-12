@@ -3,6 +3,8 @@ Open-source soft-soil EGM workflow (GeoTOP, CPTs, GemPy, Speckle) for IAEG 2026.
 
 Project home page with the model extent on a map: <https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/> (source in [`site/`](site/)).
 
+Slides of the IAEG 2026 talk: <https://bedrock-engineer.github.io/iaeg2026-soft-soil-egm/slides/> (source in [`presentation/`](presentation/)).
+
 ## Local notebooks
 
 Run `uvx marimo edit --sandbox --watch notebooks/01_get_data.py` to select data around the building footprint loaded from R2. The buffer is measured in RD New meters; touched GeoTOP columns define the exact area used to select CPTs and geotechnical boreholes from the BRO's REST API, by their delivered coordinates. Use the download button to create the local `data/` inputs: `geotop.nc` (all GeoTOP variables), `cpts.parquet` and `selection.json`. The notebook then writes the voxels as a bimpolars BimDataFrame, `geotop_bimdf.parquet`, and shows them in the GeoSpeckleViewer.

@@ -105,4 +105,7 @@ in column x 121,900, y 488,500, where the grid gives a lower ground than GeoTOP 
 `src/cpt-samples.ts`); 392,743 cells of the kept zones; and the sections' start at x 122,080,
 y 488,750, z −14.125 with CPT000000198164.
 
-`.github/workflows/pages.yml` builds and deploys the site.
+`.github/workflows/pages.yml` builds and deploys the site. It also copies the talk's slides,
+`presentation/IAEG2026_Soft-Soil-EGM.html`, to `slides/index.html` beside the page, which links them
+in its bar. `npm run dev` and `npm run build` leave them out, so the link only works on the published
+page.

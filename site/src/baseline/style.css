@@ -90,6 +90,17 @@ h1 {
   transform: rotate(-135deg);
 }
 
+/* At the bar's end, on the title's line */
+.slides-link {
+  flex: none;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.slides-link:hover {
+  text-decoration: underline;
+}
+
 .intro p {
   margin: 2px 0 0;
   max-width: 110ch;
