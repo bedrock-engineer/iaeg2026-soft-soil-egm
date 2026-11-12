@@ -226,40 +226,53 @@ async function main() {
   sideBySide.addEventListener("change", placeCard);
   placeCard();
 
-  const loadingModel = loadR2Model();
-  void soilSections(loadingModel.then(({ ring }) => ring));
-  try {
-    const { state, objects, groups, footprints, outline, tiles } = await loadingModel;
+  const { home, site, model: loadingModel } = loadR2Model();
+  void soilSections(site.then(({ ring }) => ring));
 
-    let ids: string[] = [];
-    let opening: Promise<FootprintMap> | null = null;
-    const openMap = () => {
-      if (opening || !sideBySide.matches) {
-        return;
+  // The map opens as soon as the model file's metadata gives the building's bounds, so that it moves
+  // while the models load (joost); the outline and the footprints follow
+  let ids: string[] = [];
+  let footprints: Footprints | null = null;
+  let opening: Promise<FootprintMap> | null = null;
+  const openMap = () => {
+    if (opening || !sideBySide.matches) {
+      return;
+    }
+    opening = (async () => {
+      const [{ FootprintMap }, { addBroLocations }, bounds] = await Promise.all([
+        import("./footprint-map"),
+        import("./bro-locations"),
+        home,
+      ]);
+      const map = new FootprintMap(byId("map"), bounds);
+      addBroLocations(map.map);
+      void site.then(({ outline }) => map.setOutline(outline));
+      for (const button of document.querySelectorAll<HTMLButtonElement>(".basemaps button")) {
+        button.addEventListener("click", () => {
+          map.setBasemap(button.dataset.basemap as Basemap);
+          for (const other of document.querySelectorAll(".basemaps button")) {
+            other.setAttribute("aria-pressed", String(other === button));
+          }
+        });
       }
-      opening = (async () => {
-        const [{ FootprintMap }, { addBroLocations }] = await Promise.all([
-          import("./footprint-map"),
-          import("./bro-locations"),
-        ]);
-        const map = new FootprintMap(byId("map"), footprints, outline);
-        addBroLocations(map.map);
-        for (const button of document.querySelectorAll<HTMLButtonElement>(".basemaps button")) {
-          button.addEventListener("click", () => {
-            map.setBasemap(button.dataset.basemap as Basemap);
-            for (const other of document.querySelectorAll(".basemaps button")) {
-              other.setAttribute("aria-pressed", String(other === button));
-            }
-          });
-        }
-        if (ids.length) {
-          map.select(ids);
-        }
-        return map;
-      })();
-    };
-    sideBySide.addEventListener("change", openMap);
-    openMap();
+      if (footprints) {
+        map.setFootprints(footprints);
+      }
+      if (ids.length) {
+        map.select(ids);
+      }
+      return map;
+    })();
+  };
+  sideBySide.addEventListener("change", openMap);
+  openMap();
+  /** Runs use on the map once it is open, if it opens */
+  const onMap = (use: (map: FootprintMap) => void) => void opening?.then(use);
+
+  try {
+    const { state, objects, groups, footprints: all, tiles } = await loadingModel;
+    footprints = all;
+    onMap((map) => map.setFootprints(all));
 
     // The viewer fills its pane: its height trait follows the pane's. The ground map starts hidden
     const { model, loaded, viewer } = mountGeoSpeckleViewer(byId("viewer"), {
@@ -281,8 +294,8 @@ async function main() {
       ids = selected.map((element) => element.applicationId as string);
       card.dataset.ids = JSON.stringify(ids);
       card.dataset.drawn = "[]";
-      describe(card, ids, footprints, selected);
-      void opening?.then((map) => {
+      describe(card, ids, all, selected);
+      onMap((map) => {
         map.select(ids);
         // What the map draws once it is still, for the headless test (e2e/site.test.mjs)
         map.map.once("idle", () => {

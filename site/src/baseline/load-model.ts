@@ -1,6 +1,8 @@
 // Browser adapter for the unchanged upstream bimpolars page and GeoSpeckleViewer.
 import {
+  type AsyncBuffer,
   asyncBufferFromUrl,
+  type FileMetaData,
   parquetMetadataAsync,
   parquetReadObjects,
 } from "hyparquet";
@@ -401,9 +403,32 @@ async function contextTiles(
     hide_within: [rings],
   };
 }
-async function readRows(url: string, columns: string[]): Promise<Row[]> {
+interface Parquet {
+  file: AsyncBuffer;
+  metadata: FileMetaData;
+}
+
+/** A Parquet file on R2 and its metadata, read once for all the reads of its columns */
+async function openParquet(url: string): Promise<Parquet> {
   const file = await asyncBufferFromUrl({ url });
-  const metadata = await parquetMetadataAsync(file);
+  return { file, metadata: await parquetMetadataAsync(file) };
+}
+
+/**
+ * The bounds of a GeoParquet column in longitude and latitude, [west, south, east, north], from the
+ * file's metadata alone
+ */
+function geoBounds({ metadata }: Parquet, column: string): [number, number, number, number] {
+  const geo = metadata.key_value_metadata?.find(({ key }) => key === "geo")?.value;
+  const bbox = geo && JSON.parse(geo).columns?.[column]?.bbox;
+  if (!bbox) {
+    throw new Error(`The Parquet file has no GeoParquet bbox for ${column}`);
+  }
+  return bbox;
+}
+
+async function readRows(parquet: Parquet | Promise<Parquet>, columns: string[]): Promise<Row[]> {
+  const { file, metadata } = await parquet;
   return (await parquetReadObjects({
     file,
     metadata,
@@ -419,7 +444,7 @@ async function readRows(url: string, columns: string[]): Promise<Row[]> {
  */
 async function readSoil(building: Promise<Row[]>) {
   const read = async ({ url, propertySet }: (typeof SOIL)[keyof typeof SOIL]) => {
-    const rows = await readRows(url, ["id", "name", "class", "properties", "mesh", "geog", "bim_crs"]);
+    const rows = await readRows(openParquet(url), ["id", "name", "class", "properties", "mesh", "geog", "bim_crs"]);
     const buildingCrs = siteCrs((await building).find((r) => r.bim_crs)!.bim_crs!);
     const toBuilding = between(siteCrs(rows[0].bim_crs!), buildingCrs);
     return rows
@@ -441,29 +466,58 @@ async function readSoil(building: Promise<Row[]>) {
   return { cpts, volumes };
 }
 
-export async function loadR2Model() {
-  const reading = readRows(modelParquetUrl, [
+/**
+ * What the page needs as it comes in: the building's bounds from the file's metadata (`home`, where
+ * the map opens), its outline once the model's light columns are in (`site`, all the cross sections
+ * need from the model), and the models once their meshes are decoded and built (`model`).
+ */
+export function loadR2Model() {
+  const parquet = openParquet(modelParquetUrl);
+  const home = parquet.then((opened) => geoBounds(opened, "geog"));
+  // The two reads fetch only their own columns: the light ones are in and decoded long before the meshes
+  const reading = readRows(parquet, [
     "id",
     "name",
     "class",
     "container",
     "elevation",
     "geog",
-    "footprint",
-    "mesh",
-    "model_name",
     "bim_crs",
   ]);
-  const [rows, { cpts, volumes }] = await Promise.all([reading, readSoil(reading)]);
+  const meshes = readRows(parquet, ["footprint", "mesh", "model_name"]);
+  const site = reading.then((rows) => {
+    const { outline, ring } = buildingFootprint(
+      rows.filter((r) => r.geog).map((r) => r.geog!),
+    );
+    return {
+      outline: { type: "FeatureCollection", features: [outline] } as GeoJSON.FeatureCollection,
+      /** The building's outline as a ring in RD New, for the cross sections */
+      ring,
+      outlineFeature: outline,
+    };
+  });
+  return { home, site, model: buildModel(reading, meshes, site) };
+}
+
+async function buildModel(
+  reading: Promise<Row[]>,
+  meshes: Promise<Row[]>,
+  site: Promise<{ outlineFeature: GeoJSON.Feature<GeoJSON.Polygon> }>,
+) {
+  const [light, heavy, { cpts, volumes }, { outlineFeature }] = await Promise.all([
+    reading,
+    meshes,
+    readSoil(reading),
+    site,
+  ]);
+  // Row by row, as both reads go through the file in order
+  const rows = light.map((row, i) => ({ ...row, ...heavy[i] }));
   // The viewer's world is the building's CRS in meters
   const buildingCrs = siteCrs(rows.find((r) => r.bim_crs)!.bim_crs!);
   const units = { 1: "m", 0.001: "mm" }[buildingCrs.unit];
   if (!units) {
     throw new Error(`${buildingCrs.name} is neither in meters nor in millimeters`);
   }
-  const { outline: outlineFeature, ring } = buildingFootprint(
-    rows.filter((r) => r.geog).map((r) => r.geog!),
-  );
   const storeys = new Map(
     rows
       .filter((r) => r.class === "Levels" || r.class === "IfcBuildingStorey")
@@ -538,12 +592,6 @@ export async function loadR2Model() {
     objects: packed,
     groups,
     footprints,
-    outline: {
-      type: "FeatureCollection",
-      features: [outlineFeature],
-    } as GeoJSON.FeatureCollection,
-    /** The building's outline as a ring in RD New, for the cross sections */
-    ring,
     tiles,
     rowCount: rows.length,
   };

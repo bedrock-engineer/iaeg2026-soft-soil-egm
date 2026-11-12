@@ -132,9 +132,8 @@
               "(min-width: 901px)",
             ).matches;
           </script>
-          <!-- Until the models are in: a still of the view (loading.jpg), greyed
-               out under the message -->
-          <div id="loading" class="loading">
+          <!-- Until the models are in: a still of the view, faded under the message -->
+          <div id="loading" class="loading still">
             <p>
               Loading the building, the interpreted CPTs and the SBTn volumes
               from R2 Parquet…
@@ -174,13 +173,18 @@
       <section class="soil" aria-labelledby="sections-title">
         <h2 id="sections-title">Cross sections</h2>
         <div id="cross-sections">
-          <p class="pending">Loading the soil model from R2 Zarr…</p>
+          <!-- Until the sections are in: a still of them, faded under the message -->
+          <div class="still">
+            <p>Loading the soil model from R2 Zarr…</p>
+          </div>
         </div>
         <h2>CPT</h2>
         <div id="cpt-plot">
-          <p class="pending">
-            Loading the probabilities and qc of the cells for the selected CPT…
-          </p>
+          <div class="still">
+            <p>
+              Loading the probabilities and qc of the cells for the selected CPT…
+            </p>
+          </div>
         </div>
         <h2 id="notebooks-title">Notebooks</h2>
         <!-- The workflow behind the page, as the README describes it -->
