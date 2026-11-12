@@ -9,6 +9,8 @@ on:
       # The page bundles the notebooks' CrossSections widget and the domains' colors
       - "notebooks/cross_sections.js"
       - "notebooks/simulation_domains.json"
+      # The talk's slides, served beside the page
+      - "presentation/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -36,6 +38,9 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - run: npm ci
       - run: npm run build
+      # The talk's slides are one self-contained HTML file, which GitHub's file view shows as source:
+      # the page serves it as slides/
+      - run: mkdir -p dist/slides && cp ../presentation/IAEG2026_Soft-Soil-EGM.html dist/slides/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
