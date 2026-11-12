@@ -18,10 +18,13 @@ adapted to Amsterdam Noord. BRO location layers are the additional map control.
 The header ends in the repository's GitHub mark, right of the chevron and outside the intro's
 `<summary>`, so that it stays in sight with the intro collapsed. Until the models are in, the
 viewer pane shows `src/baseline/loading.jpg` under the loading message: a still of the loaded view,
-which the CSS greys out. Retake it when the models or the camera change, where OSM and PDOK load
-(not the cloud container): a screenshot of `#viewer-pane` on the live page at 1440 × 900, device
-scale 2, JPEG quality 70, without the Layers panel, once `#loading` is hidden and the 3D BAG has
-streamed in.
+which the CSS greys out. `loading-sections.jpg` and `loading-cpt.jpg` beside it are stills of the
+same kind for the cross sections and the CPT plot, from their Color by and Plot rows down to their
+captions; the page does not show them yet. Retake them when the models or the camera change, in a
+browser with a GPU (headless Chromium's software WebGL speckles and stripes the faces) and where
+OSM and PDOK load: crop a screenshot of the loaded page to `#viewer-pane` without the Layers
+button, and to the cross sections' and CPT plot's contents, then grey it, take it to device scale
+1 and save it as JPEG quality 45 (about 30 KB each).
 
 ## The viewer
 
